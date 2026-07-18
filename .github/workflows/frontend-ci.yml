@@ -1,0 +1,13 @@
+# Frontend CI — ARCHITECTURE.md section 8.4
+# Placeholder workflow. Pipeline stages are specified in the architecture
+# document but not implemented here.
+name: Frontend CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Frontend CI not implemented"

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>pk.nust.cuas</groupId>
+  <artifactId>backend</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>backend</name>
+  <description>CUAS platform backend services (ARCHITECTURE.md section 4)</description>
+
+  <modules>
+    <module>platform-parent</module>
+    <module>platform-commons</module>
+    <module>api-gateway</module>
+    <module>auth-service</module>
+    <module>user-service</module>
+    <module>sensor-ingestion</module>
+    <module>track-correlation</module>
+    <module>ai-orchestrator</module>
+    <module>threat-assessment</module>
+    <module>alert-service</module>
+    <module>notification-service</module>
+    <module>reporting-service</module>
+    <module>audit-service</module>
+    <module>config-service</module>
+  </modules>
+</project>

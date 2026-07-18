@@ -1,0 +1,13 @@
+# AI Service CI — ARCHITECTURE.md section 8.4.2
+# Placeholder workflow. Pipeline stages are specified in the architecture
+# document but not implemented here.
+name: AI Service CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "AI Service CI not implemented"

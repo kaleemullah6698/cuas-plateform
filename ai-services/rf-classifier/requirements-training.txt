@@ -1,0 +1,6 @@
+# Training-only dependencies. Never installed into the runtime image.
+torch
+torchvision
+scikit-learn
+mlflow
+dvc

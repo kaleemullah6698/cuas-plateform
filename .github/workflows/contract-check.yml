@@ -1,0 +1,13 @@
+# Contract Check — ARCHITECTURE.md section 8.4.1
+# Placeholder workflow. Pipeline stages are specified in the architecture
+# document but not implemented here.
+name: Contract Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Contract Check not implemented"

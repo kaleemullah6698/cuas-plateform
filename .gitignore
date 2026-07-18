@@ -1,0 +1,59 @@
+# ── Java / Maven ──
+target/
+*.jar
+*.war
+*.class
+.mvn/wrapper/maven-wrapper.jar
+
+# ── Node ──
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+coverage/
+playwright-report/
+test-results/
+storybook-static/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Secrets — ARCHITECTURE.md section 7.7 ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+secrets/
+
+# ── Generated contract output — build artefact, never committed ──
+contracts/generated/**
+!contracts/generated/**/.gitkeep
+
+# ── ML artefacts ──
+ai-services/*/models/*
+!ai-services/*/models/.gitkeep
+mlruns/
+*.onnx
+*.pt
+*.pth
+
+# ── IDE ──
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# ── Logs ──
+*.log
+logs/

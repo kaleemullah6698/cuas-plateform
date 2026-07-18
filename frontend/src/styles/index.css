@@ -1,0 +1,8 @@
+/*
+ * ARCHITECTURE.md section 2.1 defines the design language: colour system,
+ * typography scale, 8-point spacing, radius scale, and elevation.
+ *
+ * Design tokens belong in src/design-system/tokens/ as CSS custom properties,
+ * consumed by Tailwind. Scaffold only — no tokens defined yet.
+ */
+@import "tailwindcss";

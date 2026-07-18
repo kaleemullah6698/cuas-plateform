@@ -1,0 +1,24 @@
+# ai-orchestrator — ARCHITECTURE.md section 4.1
+# Scaffold configuration. No service connections are active.
+
+spring:
+  application:
+    name: ai-orchestrator
+
+server:
+  port: 8085
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    pk.nust.cuas: DEBUG

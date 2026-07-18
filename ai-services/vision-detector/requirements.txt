@@ -1,0 +1,11 @@
+# Runtime dependencies. Training dependencies live in requirements-training.txt
+# and are excluded from the runtime image (ARCHITECTURE.md section 6.7).
+fastapi
+uvicorn
+grpcio
+grpcio-tools
+protobuf
+onnxruntime
+numpy
+pydantic
+prometheus-client

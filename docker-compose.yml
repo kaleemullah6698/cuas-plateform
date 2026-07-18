@@ -1,0 +1,253 @@
+# CUAS platform — development topology (ARCHITECTURE.md section 8.2)
+#
+# Profiles:
+#   infra     infrastructure only
+#   platform  + Track A services
+#   ai        + Track B AI services
+#
+#   docker compose --profile infra up -d
+#   docker compose --profile platform up -d
+#   AI_PROVIDER_MODE=mock docker compose --profile platform up -d
+#
+# Scaffold only. Services are declared and images pinned;
+# no application wiring, credentials, or topic/schema initialisation.
+
+x-service-defaults: &defaults
+  restart: unless-stopped
+  networks: [cuas-internal]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────
+  postgres:
+    <<: *defaults
+    profiles: [infra, platform, ai]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cuas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cuas}"]
+      interval: 10s
+      retries: 5
+
+  kafka:
+    <<: *defaults
+    profiles: [infra, platform, ai]
+    image: confluentinc/cp-kafka:7.8.0
+    environment:
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes: [kafkadata:/var/lib/kafka/data]
+
+  schema-registry:
+    <<: *defaults
+    profiles: [infra, platform, ai]
+    image: confluentinc/cp-schema-registry:7.8.0
+    depends_on: [kafka]
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+
+  elasticsearch:
+    <<: *defaults
+    profiles: [infra, platform, ai]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes: [esdata:/usr/share/elasticsearch/data]
+
+  kibana:
+    <<: *defaults
+    profiles: [infra]
+    image: docker.elastic.co/kibana/kibana:8.17.0
+    depends_on: [elasticsearch]
+    ports: ["5601:5601"]
+
+  redis:
+    <<: *defaults
+    profiles: [infra, platform, ai]
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+
+  minio:
+    <<: *defaults
+    profiles: [infra, platform, ai]
+    image: minio/minio:latest
+    command: server /data --console-address ":9090"
+    volumes: [miniodata:/data]
+
+  # ── Platform services (Track A) ─────────────────────────────────────
+  api-gateway:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/api-gateway/Dockerfile
+    depends_on:
+      kafka: {condition: service_started}
+      redis: {condition: service_started}
+    ports: ["8080:8080"]
+
+  auth-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/auth-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  user-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/user-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  sensor-ingestion:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/sensor-ingestion/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  track-correlation:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/track-correlation/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  ai-orchestrator:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/ai-orchestrator/Dockerfile
+    environment:
+      # The two-track switch — ARCHITECTURE.md section 6.4
+      AI_PROVIDER_MODE: ${AI_PROVIDER_MODE:-mock}
+    depends_on:
+      kafka: {condition: service_started}
+      redis: {condition: service_started}
+  threat-assessment:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/threat-assessment/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  alert-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/alert-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  notification-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/notification-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  reporting-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/reporting-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  audit-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/audit-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+  config-service:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: .
+      dockerfile: backend/config-service/Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_started}
+
+  # ── Frontend ────────────────────────────────────────────────────────
+  web:
+    <<: *defaults
+    profiles: [platform]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports: ["3000:80"]
+
+  # ── AI services (Track B) ───────────────────────────────────────────
+  rf-classifier:
+    <<: *defaults
+    profiles: [ai]
+    build:
+      context: ./ai-services/rf-classifier
+      dockerfile: Dockerfile
+  vision-detector:
+    <<: *defaults
+    profiles: [ai]
+    build:
+      context: ./ai-services/vision-detector
+      dockerfile: Dockerfile
+  radar-rf-fusion:
+    <<: *defaults
+    profiles: [ai]
+    build:
+      context: ./ai-services/radar-rf-fusion
+      dockerfile: Dockerfile
+  threat-scorer:
+    <<: *defaults
+    profiles: [ai]
+    build:
+      context: ./ai-services/threat-scorer
+      dockerfile: Dockerfile
+
+networks:
+  cuas-internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  kafkadata:
+  esdata:
+  redisdata:
+  miniodata:
