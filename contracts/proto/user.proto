@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+// Identity and authorisation contract — ARCHITECTURE.md sections 4.1.3, 7.4.
+//
+// user-service is the authority on what a user may do. auth-service calls ResolvePermissions to
+// build the `perms` claim of an access token, so the permission set is resolved once, at issue
+// time, and every downstream service authorises against the token alone.
+package pk.nust.cuas.user.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.user.v1";
+option java_outer_classname = "UserProto";
+
+service UserService {
+  // Returns the effective permissions of a user: the union of the permissions granted by every
+  // role assigned to them (section 7.4 — permissions are additive, roles never inherit).
+  rpc ResolvePermissions (ResolvePermissionsRequest) returns (ResolvePermissionsResponse);
+}
+
+message ResolvePermissionsRequest {
+  string user_id = 1;
+}
+
+message ResolvePermissionsResponse {
+  string user_id = 1;
+  // Role codes assigned to the user, e.g. "OPERATOR".
+  repeated string roles = 2;
+  // Permission authority strings, e.g. "alert:acknowledge". Already de-duplicated.
+  repeated string permissions = 3;
+  // False when the account is deactivated; a caller must refuse to issue a token for it.
+  bool active = 4;
+}
+
+// Published on platform.user.deactivated.v1 when an account is deactivated. auth-service consumes
+// it to revoke every session and refresh-token family for that user (section 4.1.2), so a
+// deactivated account cannot continue to act on a token issued before deactivation.
+message UserDeactivated {
+  string user_id = 1;
+  string deactivated_by = 2;
+  google.protobuf.Timestamp deactivated_at = 3;
+  string correlation_id = 4;
+}

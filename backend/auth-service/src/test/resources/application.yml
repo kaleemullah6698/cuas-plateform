@@ -1,0 +1,34 @@
+# Test configuration. The datasource is supplied per-test by Testcontainers.
+
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:29092
+    listener:
+      auto-startup: false
+
+auth:
+  # Argon2id at production cost (64 MiB, 3 iterations) makes each hash ~100ms, which would add
+  # minutes across the suite. Lowered here only; the production defaults live in the main config
+  # and are never overridden outside tests.
+  argon2:
+    memory-kb: 1024
+    iterations: 1
+    parallelism: 1
+  cookie:
+    # No TLS in tests, so the cookie must not be marked Secure or it will not be set.
+    secure: false
+  user-service:
+    # The gRPC client is replaced by a stub resolver in tests; no user-service is started.
+    enabled: false
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: DEBUG

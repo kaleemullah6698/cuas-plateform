@@ -47,6 +47,7 @@ PRIMARY_TOPICS=(
   "incident.created.v1               3 ${R_INF} delete"
   "platform.config.updated.v1        1 ${R_INF} compact"
   "platform.audit.v1                 3 ${R_INF} delete"
+  "platform.user.deactivated.v1      3 ${R_INF} delete"
 )
 
 # Dead-letter queues (section 5.2, `*.DLQ` row: 3 partitions, 30 d, delete). One DLQ is

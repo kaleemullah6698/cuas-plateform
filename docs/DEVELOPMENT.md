@@ -54,8 +54,8 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | `scripts/verify-infra.sh` (DBs + topics + health) | ✅ Executed | **33 passed, 0 failed** |
 | Kafka produce/consume round-trip | ✅ Executed | Message produced and consumed; host listener `localhost:29092` correctly advertised |
 | Host reachability of all mapped ports | ✅ Executed | 5432, 29092, 8081, 9200, 6379, 9000, 9090, 5601 all reachable |
-| `mvn clean verify` (M2.1) | ✅ Executed | 16 modules, **97 tests**, 0 failures |
-| Testcontainers integration tests | ✅ Executed | M2.1 — 12 tests against real PostgreSQL 17 (Flyway migration, hash chain, DB-enforced immutability, concurrent append) |
+| `mvn clean verify` (M2 complete) | ✅ Executed | 16 modules, **173 tests**, 0 failures |
+| Testcontainers integration tests | ✅ Executed | 44 tests against real PostgreSQL 17 across audit, user and auth services — hash chain, DB-enforced immutability, concurrent append, self-escalation refusal, refresh-token reuse detection, fail-closed audit rollback |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

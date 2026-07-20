@@ -123,9 +123,22 @@ require; auth depends on user-service for permission resolution.
 
 | Sub-milestone | Scope | Status |
 |---|---|---|
-| **M2.1** | Shared contracts (`audit.proto`, `Permission`/`Role`, audit publisher) + `audit-service` | ✅ **Complete** — `mvn clean verify` green, 16 modules, 97 tests (12 Testcontainers) |
-| **M2.2** | `user-service` — users, roles, effective-permission resolution, self-escalation and separation-of-duty enforcement | ⬜ Next |
-| **M2.3** | `auth-service` — Argon2id, TOTP MFA, RS256 JWT, rotating refresh with reuse detection | ⬜ Pending |
+| **M2.1** | Shared contracts (`audit.proto`, `Permission`/`Role`, audit publisher) + `audit-service` | ✅ **Complete** — 97 tests |
+| **M2.2** | `user-service` — users, roles, effective-permission resolution, self-escalation and separation-of-duty enforcement | ✅ **Complete** — 39 tests |
+| **M2.3** | `auth-service` — Argon2id, TOTP MFA, RS256 JWT, rotating refresh with reuse detection | ✅ **Complete** — 37 tests |
+
+**M2 complete.** `mvn clean verify`: 16 modules, **173 tests**, 0 failures.
+
+**M2.2 delivered:** `User` aggregate with role membership; `RoleAssignmentPolicy` enforcing the two §7.4 constraints (an actor cannot grant a permission they lack; no account may hold both `role:write` and `audit:export`); effective-permission resolution that returns nothing for a deactivated account; `ResolvePermissions` gRPC; REST administration with mandatory justification on every role change; RBAC reference tables synchronised from the enums at startup rather than duplicated in SQL. Every mutation publishes through the fail-closed `AuditPublisher`, and rollback is proven by test.
+
+**M2.3 delivered:** Argon2id (§7.3 parameters); RFC 6238 TOTP with ±1-step skew and replay blocked by recording the accepted time step; RS256 access tokens carrying the resolved `perms` claim, with JWKS published for verifiers; rotating refresh tokens stored only as digests, with reuse detection revoking the whole family and its session; account lockout; `HttpOnly`/`Secure`/`SameSite=Strict` refresh cookie; deactivation consumer revoking sessions on `platform.user.deactivated.v1`.
+
+**Three defects found and fixed during M2.2/M2.3:**
+- **Security bookkeeping was rolled back by its own failure.** Failed-attempt records, the lockout counter, and — most seriously — the refresh-token family revocation on reuse detection all ran inside the transaction that the rejection exception rolled back. Reuse detection therefore reported an attack and then took no action, leaving the captured family live. Moved to `SecurityBookkeeping` with `REQUIRES_NEW`; four tests now pin the behaviour.
+- **`user_roles.assigned_by` duplicated `role_change_log`** and was unwritable through the element-collection mapping. Removed: who granted a role, when, and why is recorded once.
+- **Spring Data does not register repositories nested inside a holder class**, so grouping them silently produced no beans. Split into top-level interfaces.
+
+**Documented amendment:** §5.2 gained `platform.user.deactivated.v1`, which §4.1.2 requires auth-service to consume but the catalogue omitted. Added to `create-topics.sh`. Other domain events §4.1.2/§4.1.3 list remain unbuilt — they have no consumer yet, per the M1 precedent of not shipping unconsumed contracts.
 
 **M2.1 delivered:** `audit.proto` (fields from the §7.5 table); `Permission`/`Role` encoding the
 §7.4 matrix with the ADMIN-cannot-`audit:export` separation-of-duty invariant asserted at startup;

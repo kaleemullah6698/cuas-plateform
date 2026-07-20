@@ -1,0 +1,28 @@
+# Test configuration. The datasource is supplied per-test by Testcontainers.
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:29092
+    listener:
+      auto-startup: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:8081/auth/jwks
+
+# Port 0 lets the gRPC server bind a free port so parallel test JVMs never collide.
+grpc:
+  server:
+    port: 0
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: DEBUG

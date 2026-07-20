@@ -1217,6 +1217,7 @@ flowchart LR
 | `incident.created.v1` | `incidentId` | 3 | ∞ | delete | Alert | Notification, Reporting, Audit |
 | `platform.config.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | All services |
 | `platform.audit.v1` | `actorId` | 3 | ∞ | delete | All | Audit |
+| `platform.user.deactivated.v1` | `userId` | 3 | ∞ | delete | User & RBAC | Authentication |
 | `*.DLQ` | original key | 3 | 30 d | delete | Any consumer | Ops tooling |
 
 **Topic naming:** `<domain>.<entity>.<event>.v<major>`. The major version lives in the topic name — a breaking schema change creates a new topic and both run in parallel during migration. This is the only versioning strategy that survives a heterogeneous, independently-deployed consumer set.
