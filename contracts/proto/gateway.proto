@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+// Edge telemetry contract — ARCHITECTURE.md sections 4.1.1, 5.2, 7.8.
+//
+// The gateway owns no domain data, so these are the only events it produces: what reached the
+// platform, and what was turned away at the door. Neither is an audit record — the tamper-evident
+// log of section 7.5 is written separately and on a different guarantee. These are observability
+// and alerting inputs, consumed by Reporting and, for rejections, by Alert.
+package pk.nust.cuas.gateway.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.gateway.v1";
+option java_outer_classname = "GatewayProto";
+
+// Published on platform.gateway.access.v1, sampled (section 4.1.1). Sampling is why this must not
+// be relied on as an audit trail: an unsampled request produces no record here by design.
+message GatewayAccess {
+  string correlation_id = 1;
+  // Empty for an unauthenticated request, such as a login attempt.
+  string user_id = 2;
+  string method = 3;
+  string path = 4;
+  int32 status_code = 5;
+  int64 duration_millis = 6;
+  string client_ip = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+// Published on platform.gateway.ratelimit.v1 whenever a request is refused under section 7.8.
+// Never sampled: a rejection is a signal, and a sampled signal is not one.
+message GatewayRateLimited {
+  string correlation_id = 1;
+  // The section 7.8 rule that refused the request, e.g. "login-per-ip".
+  string rule = 2;
+  // The identity the exhausted bucket is keyed on: an address, an account name, or a user id.
+  string identity = 3;
+  string method = 4;
+  string path = 5;
+  string client_ip = 6;
+  int64 retry_after_seconds = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}

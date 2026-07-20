@@ -23,6 +23,10 @@ public final class AuditActions {
     /** Refresh-token reuse detected; the whole family is revoked (section 7.3). */
     public static final String TOKEN_REUSE_DETECTED = "TOKEN_REUSE_DETECTED";
 
+    // ── Edge enforcement (section 7.8) ──
+    /** A request refused at the gateway by a rate limit on a security-relevant endpoint (7.8). */
+    public static final String RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED";
+
     // ── Identity and authorisation (section 7.4) ──
     public static final String USER_CREATED = "USER_CREATED";
     public static final String USER_UPDATED = "USER_UPDATED";

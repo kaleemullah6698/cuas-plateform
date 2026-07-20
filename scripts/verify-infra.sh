@@ -45,7 +45,7 @@ wait_ready() {
 
 check_postgres() { dc exec -T postgres pg_isready -U "${POSTGRES_USER:-cuas}"; }
 check_kafka()    { dc exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list; }
-check_redis()    { dc exec -T redis redis-cli ping | grep -q PONG; }
+check_redis()    { dc exec -T redis sh -c 'redis-cli -a "$REDISCLI_AUTH" --no-auth-warning ping' | grep -q PONG; }
 check_sr()       { curl -fsS http://localhost:8081/subjects; }
 check_es()       { curl -fsS http://localhost:9200/_cluster/health; }
 check_minio()    { curl -fsS http://localhost:9000/minio/health/live; }
@@ -91,7 +91,7 @@ else
   fail "create-topics.sh applied"
 fi
 
-echo "== 6. Topics exist (expect 24: 18 primary + 6 DLQ) =="
+echo "== 6. Topics exist (expect 26: 20 primary + 6 DLQ) =="
 ACTUAL_TOPICS=$(dc exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null | tr -d '\r')
 TOPIC_COUNT=$(echo "$ACTUAL_TOPICS" | grep -cE '\.v1$|\.dlq$' || true)
 for t in sensor.detection.raw.v1 sensor.detection.normalized.v1 track.created.v1 \
@@ -99,7 +99,7 @@ for t in sensor.detection.raw.v1 sensor.detection.normalized.v1 track.created.v1
          platform.audit.v1 platform.config.updated.v1 alert.raised.v1.dlq; do
   if echo "$ACTUAL_TOPICS" | grep -qx "$t"; then pass "topic $t"; else fail "topic $t"; fi
 done
-if [ "$TOPIC_COUNT" -ge 24 ]; then pass "topic count = $TOPIC_COUNT (>= 24)"; else fail "topic count = $TOPIC_COUNT (< 24)"; fi
+if [ "$TOPIC_COUNT" -ge 26 ]; then pass "topic count = $TOPIC_COUNT (>= 26)"; else fail "topic count = $TOPIC_COUNT (< 26)"; fi
 
 echo "== 7. Schema Registry / Redis / MinIO reachable =="
 check_sr    >/dev/null 2>&1 && pass "schema-registry /subjects"  || fail "schema-registry /subjects"

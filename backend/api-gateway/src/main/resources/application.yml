@@ -1,12 +1,68 @@
-# api-gateway — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# api-gateway — ARCHITECTURE.md sections 4.1.1, 7.3, 7.4, 7.8
+#
+# The gateway owns no domain data. Redis holds the section 7.8 token buckets and the section 7.3
+# revocation denylist; Kafka carries the two telemetry streams of section 5.2.
 
 spring:
   application:
     name: api-gateway
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: "1"
+      properties:
+        # Edge telemetry must never hold up a request; a slow broker is dropped, not waited on.
+        max.block.ms: 2000
+        delivery.timeout.ms: 5000
+
 server:
   port: 8080
+  error:
+    include-message: never
+    include-stacktrace: never
+
+gateway:
+  auth:
+    # Cached, per section 4.1.2: the gateway never calls auth-service to validate a token.
+    jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
+    issuer: ${AUTH_ISSUER:https://cuas.nust.edu.pk/auth}
+    audience: ${AUTH_AUDIENCE:cuas-api}
+
+  # X-Forwarded-For is believed only from these peers (section 7.8). Empty means never.
+  trusted-proxies: ${GATEWAY_TRUSTED_PROXIES:}
+
+  cors:
+    allowed-origins: ${GATEWAY_ALLOWED_ORIGINS:}
+
+  access-log:
+    # Section 4.1.1 samples the access stream. Rejections are always published regardless.
+    sample-rate: ${GATEWAY_ACCESS_SAMPLE_RATE:0.1}
+
+  # Routing table (section 4.1.1). Each milestone adds its service as it becomes routable.
+  routes:
+    - id: auth-service
+      uri: ${AUTH_SERVICE_URI:http://localhost:8081}
+      prefixes:
+        - /api/v1/auth
+        - /auth/jwks
+    - id: user-service
+      uri: ${USER_SERVICE_URI:http://localhost:8082}
+      prefixes:
+        - /api/v1/users
+    - id: audit-service
+      uri: ${AUDIT_SERVICE_URI:http://localhost:8090}
+      prefixes:
+        - /api/v1/audit
 
 management:
   endpoints:
@@ -17,8 +73,21 @@ management:
     health:
       probes:
         enabled: true
+      # Per-component detail is for the management surface, never for the public probe.
+      show-details: when-authorized
+  health:
+    # Redis holds the rate-limit buckets and the denylist. Without it the gateway fails closed, so
+    # an instance that cannot reach Redis must be taken out of rotation rather than serve 503s.
+    redis:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
 
 logging:
   level:
     root: INFO
-    pk.nust.cuas: DEBUG
+    pk.nust.cuas: INFO

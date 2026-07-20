@@ -157,8 +157,53 @@ serialised append, Kafka consumer, and an RBAC-gated query/verify API.
 
 Objective: authenticate, authorise, and record. Services: `auth-service`, `user-service`, `audit-service`. Deliverables: Argon2id credentials, TOTP MFA, RS256 JWT issue/rotate/revoke with reuse detection; the §7.4 RBAC model with self-escalation and separation-of-duty enforcement; hash-chained append-only audit log with checkpointing and chain-verify. Dependencies: M0, M1. Expected output: login→MFA→token flow; permission resolution; every mutation lands an audit record; chain verifies. Testing: domain unit tests for token/rotation rules; Testcontainers for persistence and the audit chain; endpoint tests for success/400/403; an idempotency test on audit writes.
 
-**M3 — Edge (gateway)**
+**M3 — Edge (gateway)** — ✅ **Complete** — 80 tests
 Objective: single authenticated ingress. Services: `api-gateway`. Deliverables: JWKS-cached JWT validation, permission pre-check, routing, §7.8 rate limiting, correlation-ID injection. Dependencies: M2. Expected output: authenticated requests reach a stub route; unauthenticated rejected; rate limits enforced. Testing: `@WebMvcTest` filters; rate-limit integration test against Redis; a token-revocation propagation test.
+
+**M3 complete.** `mvn clean verify`: 16 modules, **256 tests**, 0 failures.
+
+**Delivered:** servlet-stack Spring Cloud Gateway MVC (not the reactive gateway — `platform-commons`
+ships `jakarta.servlet` filters and a servlet resource-server converter, and a reactive edge would
+fork every shared cross-cutting concern); JWKS-cached RS256 validation with issuer, audience and
+`jti`-denylist checks; the §7.4 pre-check as a *refuse-only* layer that forwards routes it has no
+rule for; §7.8 token buckets as an atomic Redis Lua script; correlation-ID propagation across the
+proxy hop; RFC-7807 rejections rendered inside the filter chain, where a `@RestControllerAdvice`
+cannot reach; sampled `platform.gateway.access.v1` and always-published
+`platform.gateway.ratelimit.v1`; the §4.1.1 `/health` and `/health/ready` probes; OpenAPI for the
+gateway's own surface.
+
+**Deliberate omissions, both because the information does not exist at the edge yet:** the
+`/ingest/detections` per-sensor limit is keyed on a sensor id that arrives with M4, and the
+WebSocket connection cap is a concurrency gate belonging to the M8 fan-out. Declaring a rule that
+silently matches nothing would be worse than declaring none.
+
+**Two defects found and fixed during M3, both pre-dating it:**
+- **The fail-closed audit publisher was never wired.** `KafkaAuditPublisher` was written in M2.1 but
+  no bean definition existed anywhere. auth-service and user-service both inject `AuditPublisher`,
+  so **neither could have started**; the gap stayed invisible because every test supplies a mock.
+  Registered in `CommonsAutoConfiguration`, conditional on a `KafkaTemplate` and on no service
+  supplying its own, with four context tests pinning it.
+- **Development Redis ran unauthenticated**, diverging from §8.2. It now holds the gateway's
+  rate-limit buckets and revocation denylist, so anyone able to reach it could refill a bucket or
+  clear a revocation. `--requirepass` added, with `.env.example` and `verify-infra.sh` updated.
+
+**One defect found and fixed in new code:** the permission pre-check answered `403` to
+unauthenticated callers, because `AnonymousAuthenticationToken.isAuthenticated()` returns `true`.
+A `403` tells an anonymous caller the route exists and that authenticating would not have helped.
+Now resolved with `AuthenticationTrustResolver`, and the same correction applied to the two filters
+that read the subject.
+
+**Documented amendment:** §5.2 gained `platform.gateway.access.v1` and
+`platform.gateway.ratelimit.v1`, which §4.1.1 requires the gateway to publish but the catalogue
+omitted — the same gap, and the same treatment, as `platform.user.deactivated.v1` in M2. Both added
+to `create-topics.sh` (catalogue now 26 topics: 20 primary + 6 DLQ) and given schemas in
+`contracts/proto/gateway.proto`.
+
+**Decision recorded rather than assumed:** §7.8 specifies the limits but not the behaviour when
+Redis is unreachable. The gateway **fails closed** (503). Failing open would let anyone able to
+disturb Redis switch the rate limiter off and revive a revoked token; §4.1 already makes Redis the
+gateway's datastore, so an unreachable Redis is an unready gateway. Recorded here and in the
+gateway README because it is a real availability trade, not an obvious default.
 
 **M4 — Ingestion**
 Objective: heterogeneous sensor input → canonical `DetectionRecord` on Kafka. Services: `sensor-ingestion`, sensor simulator. Deliverables: REST + gRPC intake, per-modality normalisation, UTC + drift correction, dedup by `(sensorId, sensorSeq)`, health telemetry, dataset replay. Dependencies: M1. Expected output: replayed dataset traffic emerges on `sensor.detection.normalized.v1`. Testing: normalisation unit tests per modality; a dedup test; a Testcontainers Kafka round-trip; back-pressure drop-order test (§5.6).

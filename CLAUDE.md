@@ -156,8 +156,11 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-Currently **scaffold only** — structure exists, no implementation. See the root `README.md`.
+**M0–M3 complete.** `mvn clean verify`: 16 modules, 256 tests, 0 failures. Infrastructure verified
+live (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone
+delivered and which defects it found.
 
-Highest-priority gap: `contracts/proto/detection.proto` and `contracts/proto/inference.proto` are empty. Both are specified in full in §5.3 and §6.2 and can be lifted verbatim. Until they exist, Track B has nothing to build against.
+Built: `contracts` (§5.3, §6.2, audit, user, gateway), `platform-commons`, `audit-service`,
+`user-service`, `auth-service`, `api-gateway`. The remaining nine services are still scaffold.
 
-Unverified: the Maven and npm builds have never been executed (no JDK/Maven on the generating machine). See `docs/DEVELOPMENT.md`.
+**Next: M4 — ingestion.** Frontend is deferred to M9; `npm ci` has never been run.

@@ -48,6 +48,8 @@ PRIMARY_TOPICS=(
   "platform.config.updated.v1        1 ${R_INF} compact"
   "platform.audit.v1                 3 ${R_INF} delete"
   "platform.user.deactivated.v1      3 ${R_INF} delete"
+  "platform.gateway.access.v1        3 ${R_7D}  delete"
+  "platform.gateway.ratelimit.v1     3 ${R_30D} delete"
 )
 
 # Dead-letter queues (section 5.2, `*.DLQ` row: 3 partitions, 30 d, delete). One DLQ is

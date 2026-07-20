@@ -121,7 +121,12 @@ services:
     <<: *defaults
     profiles: [infra, platform, ai]
     image: redis:7.4-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    # Authenticated, per ARCHITECTURE.md section 8.2. Redis holds the gateway's rate-limit buckets
+    # and the section 7.3 revocation denylist, so anyone able to reach it unauthenticated could
+    # refill a bucket or clear a revocation.
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     ports: ["6379:6379"]
     volumes: [redisdata:/data]
     healthcheck:
@@ -151,8 +156,22 @@ services:
       dockerfile: backend/api-gateway/Dockerfile
     depends_on:
       kafka: {condition: service_started}
-      redis: {condition: service_started}
+      redis: {condition: service_healthy}
+      auth-service: {condition: service_started}
     ports: ["8080:8080"]
+    environment:
+      # Redis holds the section 7.8 token buckets and the section 7.3 revocation denylist. The
+      # gateway fails closed without it, which is why it waits for a healthy Redis rather than a
+      # started one.
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # JWKS is fetched once and cached; the gateway never calls auth-service per request.
+      AUTH_JWKS_URI: http://auth-service:8081/auth/jwks
+      AUTH_SERVICE_URI: http://auth-service:8081
+      USER_SERVICE_URI: http://user-service:8082
+      AUDIT_SERVICE_URI: http://audit-service:8090
+      GATEWAY_ALLOWED_ORIGINS: http://localhost:3000
 
   auth-service:
     <<: *defaults

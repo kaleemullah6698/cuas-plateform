@@ -50,12 +50,12 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | Full backend `mvn clean install` (16 modules) | ✅ Executed | BUILD SUCCESS, 38/38 tests (23 commons + 15 contracts); `buf generate` runs inside the build |
 | `docker compose --profile infra up -d` | ✅ Executed | All 7 infra containers up; postgres/kafka/schema-registry/redis report healthy |
 | `init-databases.sh` live against PostgreSQL 17 | ✅ Executed | Ran automatically on first init; **all 10 databases created**, per-database connections verified |
-| `create-topics.sh` live against Kafka | ✅ Executed | **24 topics created** (18 primary + 6 DLQ); partitions/retention/cleanup match §5.2; idempotent on re-run |
-| `scripts/verify-infra.sh` (DBs + topics + health) | ✅ Executed | **33 passed, 0 failed** |
+| `create-topics.sh` live against Kafka | ✅ Executed | **26 topics created** (20 primary + 6 DLQ); partitions/retention/cleanup match §5.2; idempotent on re-run |
+| `scripts/verify-infra.sh` (DBs + topics + health) | ✅ Executed | **33 passed, 0 failed** — re-run at M3 against the authenticated Redis and the 26-topic catalogue |
 | Kafka produce/consume round-trip | ✅ Executed | Message produced and consumed; host listener `localhost:29092` correctly advertised |
 | Host reachability of all mapped ports | ✅ Executed | 5432, 29092, 8081, 9200, 6379, 9000, 9090, 5601 all reachable |
-| `mvn clean verify` (M2 complete) | ✅ Executed | 16 modules, **173 tests**, 0 failures |
-| Testcontainers integration tests | ✅ Executed | 44 tests against real PostgreSQL 17 across audit, user and auth services — hash chain, DB-enforced immutability, concurrent append, self-escalation refusal, refresh-token reuse detection, fail-closed audit rollback |
+| `mvn clean verify` (M3 complete) | ✅ Executed | 16 modules, **256 tests**, 0 failures |
+| Testcontainers integration tests | ✅ Executed | 44 against real PostgreSQL 17 (audit, user, auth) — hash chain, DB-enforced immutability, concurrent append, self-escalation refusal, refresh-token reuse detection, fail-closed audit rollback. 46 against real Redis 7.4 (gateway) — token-bucket atomicity under concurrency, refill, fail-closed on an unreachable store, revocation propagation, the section 7.8 limits end to end |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29
