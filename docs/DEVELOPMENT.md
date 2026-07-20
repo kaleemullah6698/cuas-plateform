@@ -15,18 +15,23 @@
 
 ## Verification status
 
-**Important — read before following any command below.**
+**Important — read before following any command below.** This table records what has actually been executed and observed to succeed, versus what remains intended. It is updated as each milestone verifies its commands.
 
-This scaffold was generated on a machine with Node 22, Python 3.14, and git available, but **without JDK or Maven installed**. Consequently:
+| Command | Verified | Notes |
+|---|---|---|
+| `python scaffold` (structure generation) | ✅ Executed | 429 directories, 595 files |
+| Toolchain (`java -version`, `mvn -v`) | ✅ Executed | Portable Temurin JDK 21.0.11 + Maven 3.9.9 under `../.toolchain/` (git-ignored) |
+| `mvn -pl platform-commons -am verify` | ✅ Executed | M0 — BUILD SUCCESS, 23/23 tests pass |
+| `bash -n init-databases.sh` | ✅ Executed | Syntax OK; not yet run against a live Postgres (needs Docker) |
+| Full backend `mvn verify` (all 12 services) | ⬜ Not yet | Services are still scaffold; verified per milestone as implemented |
+| `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
+| `docker compose --profile infra up -d` | ⬜ Not yet | **Docker not installed in the development environment used so far.** Required to run infra; see Prerequisites. |
 
-| Command | Verified |
-|---|---|
-| `python scaffold` (structure generation) | ✅ Executed — 429 directories, 592 files |
-| `mvn -B verify` | ❌ **Never executed.** Maven not installed on the generating machine. |
-| `npm ci` | ❌ **Never executed.** Dependency versions are declared but unresolved. |
-| `docker compose up` | ❌ **Never executed.** |
+### Toolchain note
 
-Every command in this document is the *intended* invocation derived from `ARCHITECTURE.md`, not a command observed to succeed. Expect to fix POM coordinates and dependency versions on first build. Correct this section as commands are verified.
+The machine used for M0 had no system JDK/Maven, so a **portable** Temurin JDK 21 and Maven 3.9.9 were unpacked under `Research Internship/.toolchain/` (outside the repo, git-ignored). To reproduce the M0 build there, point `JAVA_HOME` at that JDK and prepend both `bin` directories to `PATH`. A permanent system install of JDK 21 + Maven is the recommended setup and removes the need for this.
+
+Docker is a hard prerequisite for anything beyond a single-module `mvn verify` (the infra profile, integration tests using Testcontainers). It was not available in the M0 environment, so infra bring-up and Testcontainers-based integration tests are **specified but not yet observed** — the first milestone that runs on a Docker-equipped machine will verify them.
 
 ---
 

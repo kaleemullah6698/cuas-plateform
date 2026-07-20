@@ -31,6 +31,7 @@
     <testcontainers.version>1.20.4</testcontainers.version>
     <mapstruct.version>1.6.3</mapstruct.version>
     <jacoco.version>0.8.12</jacoco.version>
+    <logstash-encoder.version>8.0</logstash-encoder.version>
   </properties>
 
   <dependencyManagement>
@@ -63,6 +64,11 @@
         <groupId>org.mapstruct</groupId>
         <artifactId>mapstruct</artifactId>
         <version>${mapstruct.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.logstash.logback</groupId>
+        <artifactId>logstash-logback-encoder</artifactId>
+        <version>${logstash-encoder.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

@@ -177,12 +177,19 @@ Later milestones receive this treatment at their start (Phase 5 rule). Detailing
 **Unit tests:** `CorrelationIdFilterTest` (propagation + generation), `ProblemDetailFactoryTest` (7807 shape + correlation ID), `BaseExceptionHandlerTest`. **Integration tests:** a minimal Spring-context test proving auto-config loads; `docker compose --profile infra up -d` health check.
 
 **Completion checklist:**
-- [ ] `mvn -pl platform-commons -am verify` green
-- [ ] JDK 21 + Maven confirmed present (retires B2); `docs/DEVELOPMENT.md` verification table updated
-- [ ] Infra profile healthy; all 10 schemas created (retires B5)
-- [ ] Correlation ID flows through the filter in a test
+- [x] `mvn -pl platform-commons -am verify` green — BUILD SUCCESS, 23/23 tests
+- [x] JDK 21 + Maven confirmed present (retires B2); `docs/DEVELOPMENT.md` verification table updated
+- [~] All 10 schemas: `init-databases.sh` implemented + syntax-checked; **live run pending Docker** (partially retires B5)
+- [x] Correlation ID flows through the filter in a test (`CorrelationIdFilterTest`)
 
-**Definition of Done:** commons builds and tests green; a fresh `docker compose --profile infra up -d` reaches healthy on Postgres, Kafka, Redis, Elasticsearch; the verification-status table reflects what actually ran.
+**Implementation notes — deviations from the pre-implementation sketch above (docs kept in sync with code):**
+- `DomainException` is an **open abstract class, not `sealed`.** A sealed root cannot be extended by the services that must define their own domain exceptions; sealing it was a specification error, corrected here.
+- No bespoke `ProblemResponse` record. Spring's built-in `org.springframework.http.ProblemDetail` is the single RFC-7807 implementation, produced by `ProblemDetailFactory`; a parallel record would duplicate it (violates CLAUDE.md §3).
+- Structured logging ships as a logback include (`logback-json.xml` + logstash encoder), not a `LoggingConfig` Java class — logging configuration is declarative.
+- `TracingConfig` (OpenTelemetry) **deferred to M8**, where end-to-end tracing is actually exercised. `MtlsClientConfig` **deferred to M6**, where the first inter-service client exists. `ValidationMessages` **deferred** until a genuinely shared constraint exists. Building them now would be placeholder code with no consumer (violates the "no placeholder implementations" rule).
+- Delivered classes: `CorrelationId`, `CorrelationIdFilter`, `DomainException`, `ProblemDetailFactory`, `BaseExceptionHandler`, `MetricsConfig`, `CommonsAutoConfiguration` (Spring Boot auto-configuration, activates by dependency alone).
+
+**Definition of Done:** commons builds and tests green ✅. Infra bring-up (`docker compose --profile infra up -d` healthy on Postgres/Kafka/Redis/Elasticsearch) and the live schema creation are **specified and syntax-checked but not yet observed** — the M0 environment had no Docker. First Docker-equipped milestone verifies them. The verification table reflects exactly what ran.
 
 ## Milestone M1 — Contracts & messaging substrate
 

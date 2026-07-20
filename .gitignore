@@ -57,3 +57,7 @@ mlruns/
 # ── Logs ──
 *.log
 logs/
+
+# ── Local portable toolchain (never committed) ──
+/.toolchain/
+../.toolchain/
