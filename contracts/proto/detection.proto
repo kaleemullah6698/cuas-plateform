@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+// Canonical detection record — ARCHITECTURE.md section 5.3.
+//
+// The single most important contract in the system. Every sensor modality is normalised
+// into this shape at ingestion, which is what makes the platform sensor-agnostic: adding a
+// modality is one adapter, not a pipeline redesign.
+//
+// Message schemas below are reproduced verbatim from ARCHITECTURE.md section 5.3. The only
+// additions are the java_* code-generation options (they affect generated code layout, not
+// the wire contract).
+package pk.nust.cuas.detection.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.detection.v1";
+option java_outer_classname = "DetectionProto";
+
+message DetectionRecord {
+  string              detection_id   = 1;  // UUIDv7 — time-sortable
+  string              sensor_id      = 2;
+  SensorModality      modality       = 3;
+  google.protobuf.Timestamp sensor_time = 4;  // sensor clock, as reported
+  google.protobuf.Timestamp ingest_time = 5;  // platform clock, authoritative ordering
+  int64               clock_drift_ms = 6;     // measured correction applied
+  uint64              sensor_seq     = 7;     // per-sensor monotonic, for dedup
+
+  GeoPosition         position       = 10;
+  Kinematics          kinematics     = 11;
+  Measurements        measurements   = 12;
+
+  float               quality        = 20;  // [0,1] sensor-reported confidence
+  map<string, string> metadata       = 21;
+  string              schema_version = 22;  // e.g. "1.0.0"
+  string              correlation_id = 23;  // end-to-end trace
+}
+
+enum SensorModality {
+  MODALITY_UNSPECIFIED = 0;
+  MODALITY_RF          = 1;
+  MODALITY_RADAR       = 2;
+  MODALITY_EO_IR       = 3;
+  MODALITY_ACOUSTIC    = 4;
+  MODALITY_GNSS        = 5;
+  MODALITY_EXTERNAL    = 6;
+}
+
+message GeoPosition {
+  double latitude = 1;
+  double longitude = 2;
+  double altitude_m = 3;                 // AMSL
+  double horizontal_accuracy_m = 4;
+  double vertical_accuracy_m   = 5;
+  bool   is_estimated = 6;               // true when derived, not measured
+}
+
+message Kinematics {
+  double range_m = 1;
+  double azimuth_deg = 2;
+  double elevation_deg = 3;
+  double radial_velocity_ms = 4;
+  double speed_ms = 5;
+  double heading_deg = 6;
+}
+
+message Measurements {
+  oneof payload {
+    RfMeasurement       rf       = 1;
+    RadarMeasurement    radar    = 2;
+    OpticalMeasurement  optical  = 3;
+    AcousticMeasurement acoustic = 4;
+    GnssMeasurement     gnss     = 5;
+  }
+}
+
+message RfMeasurement {
+  double center_frequency_hz = 1;
+  double bandwidth_hz        = 2;
+  double signal_strength_dbm = 3;
+  double snr_db              = 4;
+  string protocol_hint       = 5;         // "OcuSync" | "Lightbridge" | "WiFi" | "unknown"
+  bytes  psd_features        = 6;         // float32[] power spectral density
+  string iq_reference        = 7;         // object-store URI, NOT inline payload
+}
+
+message RadarMeasurement {
+  double rcs_m2 = 1;
+  double doppler_hz = 2;
+  string range_doppler_map_ref = 3;       // object-store URI
+  string radar_type = 4;                  // "FMCW" | "CW"
+  uint32 track_quality = 5;
+}
+
+message OpticalMeasurement {
+  BoundingBox bbox = 1;
+  string frame_ref = 2;                   // object-store URI
+  string spectrum  = 3;                   // "VISIBLE" | "IR"
+  double illuminance_lux = 4;
+  uint32 consecutive_frames = 5;
+}
+
+message BoundingBox {
+  float x = 1;
+  float y = 2;
+  float width = 3;
+  float height = 4;
+  float confidence = 5;
+}
+
+message AcousticMeasurement {
+  double bearing_deg = 1;
+  double spl_db = 2;
+  string spectrogram_ref = 3;
+  double dominant_frequency_hz = 4;
+}
+
+message GnssMeasurement {
+  uint32 satellites_visible = 1;
+  double hdop = 2;
+  bool   spoofing_suspected = 3;
+  double signal_anomaly_score = 4;
+}

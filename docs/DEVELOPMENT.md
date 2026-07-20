@@ -23,9 +23,16 @@
 | Toolchain (`java -version`, `mvn -v`) | ✅ Executed | Portable Temurin JDK 21.0.11 + Maven 3.9.9 under `../.toolchain/` (git-ignored) |
 | `mvn -pl platform-commons -am verify` | ✅ Executed | M0 — BUILD SUCCESS, 23/23 tests pass |
 | `bash -n init-databases.sh` | ✅ Executed | Syntax OK; not yet run against a live Postgres (needs Docker) |
+| `buf lint` / `buf build` | ✅ Executed | M1 — clean (documented exceptions for the fixed contract) |
+| `buf generate` (Java + Python + TS) | ✅ Executed | M1 — 50 Java, 6 Python, 2 TS files generated |
+| `mvn -pl contracts -am verify` | ✅ Executed | M1 — BUILD SUCCESS, 15/15 serde tests; runs `buf generate` then compiles generated Java |
+| Python bindings import + round-trip | ✅ Executed | M1 — protobuf 5.29 + grpcio on Python 3.14; round-trip + gRPC stubs verified |
+| TypeScript bindings `tsc --noEmit` (strict) | ✅ Executed | M1 — protobuf-es v2; typecheck passed |
+| `bash -n create-topics.sh` + dry-run | ✅ Executed | M1 — syntax OK; dry-run enumerates 24 topics (18 primary + 6 DLQ) |
 | Full backend `mvn verify` (all 12 services) | ⬜ Not yet | Services are still scaffold; verified per milestone as implemented |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
-| `docker compose --profile infra up -d` | ⬜ Not yet | **Docker not installed in the development environment used so far.** Required to run infra; see Prerequisites. |
+| `docker compose --profile infra up -d` | ⬜ Not yet | **Docker not installed in the development environment used so far.** Required to run infra + apply topics/schemas live; see Prerequisites. |
+| `create-topics.sh` live against Kafka | ⬜ Not yet | Needs Docker/Kafka; carried as an open M0/M1 infra item |
 
 ### Toolchain note
 

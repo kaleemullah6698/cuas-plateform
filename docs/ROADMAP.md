@@ -200,25 +200,32 @@ Later milestones receive this treatment at their start (Phase 5 rule). Detailing
 | File | Source | Contents |
 |---|---|---|
 | `contracts/proto/detection.proto` | §5.3 verbatim | `DetectionRecord`, `SensorModality`, `GeoPosition`, `Kinematics`, `Measurements` + per-modality messages |
-| `contracts/proto/inference.proto` | §6.2 verbatim | `InferenceService`, `InferenceRequest/Response`, `Prediction`, `ConfidenceReport`, `ModelInfo` |
-| `contracts/proto/track.proto` | §5.2 | `TrackCreated/Updated/Lost` event payloads |
-| `contracts/proto/alert.proto` | §5.2 | `ThreatAssessed`, `ThreatLevelChanged`, `AlertRaised`, `IncidentCreated` |
+| `contracts/proto/inference.proto` | §6.2 verbatim | `InferenceService`, `InferenceRequest/Response`, `Prediction`, `ConfidenceReport`, `ModelInfo` (+ 5 completed request/response types) |
+| ~~`contracts/proto/track.proto`~~ | §5.2 | **Deferred to M5** — §5.2 gives topic names, not message field schemas; authored when track-correlation defines them |
+| ~~`contracts/proto/alert.proto`~~ | §5.2 | **Deferred to M7** — same reason; authored when alert-service defines them |
 | `infrastructure/kafka/create-topics.sh` | §5.2 catalogue | Every topic with its partition count, retention, cleanup policy |
 
-**Packages generated:** `pk.nust.cuas.detection.v1`, `pk.nust.cuas.inference.v1`, `pk.nust.cuas.track.v1`, `pk.nust.cuas.alert.v1` (Java); mirror in Python and TS under `contracts/generated/`.
+**Packages generated:** `pk.nust.cuas.detection.v1`, `pk.nust.cuas.inference.v1` (Java); mirror in Python and TS under `contracts/generated/`. (`track.v1` / `alert.v1` follow at M5 / M7.)
 
 **Kafka topics:** the full §5.2 table — `sensor.detection.raw/normalized`, `sensor.health`, `track.*`, `ai.inference.*`, `threat.*`, `alert.*`, `incident.created`, `platform.config.updated`, `platform.audit`, and `*.DLQ`. Auto-create stays disabled.
 
 **Tests:** `buf lint` clean; `buf breaking --against main` wired to CI; a round-trip serialise/deserialise test per top-level message in Java; a script asserting every declared topic exists after `create-topics.sh`.
 
 **Completion checklist:**
-- [ ] `detection.proto` + `inference.proto` authored from §5.3/§6.2 (retires B1)
-- [ ] Bindings generated for Java, Python, TS
-- [ ] `buf lint` + `buf breaking` green and in CI
-- [ ] All §5.2 topics declared and created (retires B4)
-- [ ] Round-trip test per message passes
+- [x] `detection.proto` + `inference.proto` authored verbatim from §5.3/§6.2 (retires B1)
+- [x] Bindings generated for Java, Python, TS via `buf generate`
+- [x] `buf lint` green (documented exceptions for the fixed contract); `buf breaking` configured
+- [~] All §5.2 topics: `create-topics.sh` implements the full catalogue, syntax-checked, dry-run shows 24 topics (18 primary + 6 DLQ); **live creation pending Docker** (partially retires B4)
+- [x] Round-trip test per message passes — Java (15 tests), Python (import + round-trip + gRPC stubs), TypeScript (strict `tsc`)
 
-**Definition of Done:** the two critical contracts exist and generate cleanly in three languages; the topic catalogue is declarative and applied; CI fails on an incompatible schema change. At this point Track A and Track B can proceed in parallel against a frozen contract.
+**Implementation notes — deviations from the sketch above (docs kept in sync with code):**
+- **`track.proto` and `alert.proto` deferred to M5 / M7, not authored in M1.** §5.2 specifies only topic names and keys, not the message field schemas for track/alert events. Authoring them now would require inventing fields, which the milestone has no authority for ("do not invent"). Their schemas are defined at the milestone that owns the producing domain model (track-correlation at M5, alert-service at M7) and added to ARCHITECTURE.md there. This does not block M1: topic *creation* needs only names, which are fully specified.
+- **Five referenced-but-undefined inference messages completed.** §6.2's `InferenceService` referenced `BatchInferenceRequest`, `BatchInferenceResponse`, `ModelInfoRequest`, `HealthRequest`, `HealthResponse` without bodies; the proto would not compile. Completed minimally and §6.2 amended to match.
+- **buf lint exceptions.** Six STANDARD rules conflict with the deliberately-fixed contract (enum-value prefixes, RPC request/response naming, shared stream types, flat directory layout preserving `import "detection.proto"`). Excepted with documented rationale in `contracts/buf.yaml`; breaking-change detection is unaffected.
+- **DLQ interpretation.** §5.2's single `*.DLQ` row is realised as one `<topic>.dlq` per consumed pipeline topic (6 total) — the hops where a poison message must be quarantined (§5.6).
+- **Java bindings compiled via a Maven module** (`backend/contracts`) that runs `buf generate` in `generate-sources` and compiles `contracts/generated/java`. protobuf-java pinned to 4.29.2 platform-wide (overriding the Spring Boot BOM) to match the protoc v29.2 plugins.
+
+**Definition of Done:** the two critical contracts exist and generate cleanly in three languages, each verified to compile/import/round-trip ✅. The topic catalogue is declarative and syntax-verified; **live application awaits Docker**. `buf breaking` is configured for CI. Track A and Track B can now proceed in parallel against a frozen contract.
 
 ---
 

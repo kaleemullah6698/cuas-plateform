@@ -1,9 +1,29 @@
 version: v2
 modules:
   - path: proto
+
 lint:
   use:
     - STANDARD
+  # The wire contract is fixed by ARCHITECTURE.md sections 5.3 and 6.2 and reproduced verbatim.
+  # Each exception below is a STANDARD rule that conflicts with that fixed contract; none can be
+  # satisfied without renaming a specified message, enum value, or RPC. They are naming/layout
+  # rules only — correctness and, critically, breaking-change detection are unaffected.
+  except:
+    # Enum values are specified as MODALITY_*, STATUS_*, DEVICE_*, SERVING_* rather than the
+    # full-enum-name prefix STANDARD expects (SENSOR_MODALITY_*, INFERENCE_STATUS_*, …).
+    - ENUM_VALUE_PREFIX
+    # Infer/InferBatch/GetModelInfo/HealthCheck take InferenceRequest/ModelInfoRequest/etc.,
+    # not the InferRequest/GetModelInfoRequest names STANDARD derives from the RPC name.
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    # Infer and InferStream deliberately share InferenceRequest/InferenceResponse.
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    # Protos are kept flat under proto/ so the import reads `import "detection.proto"` exactly as
+    # written in ARCHITECTURE.md section 6.2, rather than a package-matching directory tree.
+    - PACKAGE_DIRECTORY_MATCH
+    - DIRECTORY_SAME_PACKAGE
+
 breaking:
   use:
     - FILE

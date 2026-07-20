@@ -1553,7 +1553,32 @@ message ModelInfo {
   uint32 p95_latency_ms = 9;
   bool   requires_gpu = 10;
 }
+
+// Request/response types for the non-Infer RPCs. Added during M1 implementation so the
+// specified service compiles; each carries the minimal shape its RPC dictates.
+message BatchInferenceRequest  { repeated InferenceRequest  requests  = 1; }
+message BatchInferenceResponse { repeated InferenceResponse responses = 1; }
+
+message ModelInfoRequest {          // selects the model GetModelInfo describes
+  string model_id = 1;
+  string model_version = 2;         // "" = currently-served version
+}
+
+message HealthRequest { string model_id = 1; }  // mirrors /health/ready per §6.1
+
+message HealthResponse {
+  enum ServingStatus { SERVING_STATUS_UNSPECIFIED = 0; SERVING = 1; NOT_SERVING = 2; }
+  ServingStatus status = 1;
+  string detail = 2;
+}
 ```
+
+> **Implementation note (M1).** As originally written, §6.2's `InferenceService` referenced
+> `BatchInferenceRequest`, `BatchInferenceResponse`, `ModelInfoRequest`, `HealthRequest`, and
+> `HealthResponse` in its RPC signatures without defining their bodies, so the proto would not
+> compile. The five definitions above were added with the minimal shape each RPC dictates; no
+> existing message was changed. The authoritative source is
+> [`contracts/proto/inference.proto`](../contracts/proto/inference.proto).
 
 **Contract rules — non-negotiable, enforced by a conformance test suite:**
 1. `model_version` and `model_sha` are **always** populated, including by the mock provider (`0.0.0-mock`).

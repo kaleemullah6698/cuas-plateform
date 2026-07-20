@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+// AI service contract — ARCHITECTURE.md section 6.2.
+//
+// The single boundary between Track A (platform) and Track B (AI services). Every AI service
+// implements InferenceService and nothing else of the platform; the AI Orchestrator is the only
+// component that knows an AI service exists. Freezing this contract is what lets the two tracks
+// develop in parallel against a stable interface.
+//
+// The messages and the InferenceService RPCs are reproduced verbatim from ARCHITECTURE.md
+// section 6.2. Two categories of addition are present and are the only deviations:
+//   1. java_* code-generation options (generated code layout only; not the wire contract).
+//   2. Bodies for BatchInferenceRequest, BatchInferenceResponse, ModelInfoRequest, HealthRequest,
+//      and HealthResponse. The section 6.2 service references these five types in its RPC
+//      signatures but does not define their bodies; they are completed here with the minimal shape
+//      each RPC dictates so the specified service compiles. ARCHITECTURE.md section 6.2 is amended
+//      to match.
+package pk.nust.cuas.inference.v1;
+
+import "google/protobuf/timestamp.proto";
+import "detection.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.inference.v1";
+option java_outer_classname = "InferenceProto";
+
+service InferenceService {
+  rpc Infer        (InferenceRequest)        returns (InferenceResponse);
+  rpc InferBatch   (BatchInferenceRequest)   returns (BatchInferenceResponse);
+  rpc InferStream  (stream InferenceRequest) returns (stream InferenceResponse);
+  rpc GetModelInfo (ModelInfoRequest)        returns (ModelInfo);
+  rpc HealthCheck  (HealthRequest)           returns (HealthResponse);
+}
+
+message InferenceRequest {
+  string   request_id     = 1;   // UUIDv7, echoed in the response
+  string   track_id       = 2;
+  string   correlation_id = 3;   // end-to-end trace, spans the whole pipeline
+  google.protobuf.Timestamp requested_at = 4;
+
+  repeated pk.nust.cuas.detection.v1.DetectionRecord detections = 10;
+
+  InferenceOptions options = 20;
+}
+
+message InferenceOptions {
+  string model_version    = 1;   // "" = service default; enables canary pinning
+  uint32 timeout_ms       = 2;   // orchestrator-enforced budget
+  float  min_confidence   = 3;   // suppress results below this
+  bool   include_features = 4;   // return embeddings for the fusion stage
+  bool   explain          = 5;   // return per-feature attribution
+}
+
+message InferenceResponse {
+  string request_id  = 1;
+  string track_id    = 2;
+  InferenceStatus status = 3;
+
+  repeated Prediction predictions = 10;
+  ConfidenceReport    confidence  = 11;
+
+  string model_id       = 20;   // "rf-classifier"
+  string model_version  = 21;   // semver, e.g. "1.3.0"
+  string model_sha      = 22;   // weights digest — reproducibility anchor
+  uint32 inference_ms   = 23;   // service-measured compute time
+  uint32 queue_wait_ms  = 24;   // time spent queued before compute
+  ComputeDevice device  = 25;
+
+  repeated FeatureAttribution attributions = 30;  // when explain=true
+  bytes  embedding      = 31;                     // when include_features=true
+  string error_message  = 40;                     // populated when status != OK
+}
+
+enum InferenceStatus {
+  STATUS_UNSPECIFIED       = 0;
+  STATUS_OK                = 1;
+  STATUS_LOW_CONFIDENCE    = 2;  // ran successfully, result below threshold
+  STATUS_INSUFFICIENT_DATA = 3;  // not enough input to infer
+  STATUS_MODEL_ERROR       = 4;
+  STATUS_TIMEOUT           = 5;
+  STATUS_DEGRADED          = 6;  // fallback path used (e.g. CPU instead of GPU)
+}
+
+message Prediction {
+  string label       = 1;   // "DJI_Mavic_3" | "bird" | "background" | "unknown"
+  string label_class = 2;   // "DRONE" | "NON_DRONE" | "BACKGROUND"
+  float  confidence  = 3;   // [0,1] calibrated
+  uint32 rank        = 4;   // 1 = top prediction
+  map<string, float> attributes = 10;  // range_m, bearing_deg, rcs_m2, …
+}
+
+message ConfidenceReport {
+  float  score            = 1;  // [0,1] overall
+  float  calibrated_score = 2;  // post temperature-scaling
+  float  entropy          = 3;  // predictive uncertainty
+  string method           = 4;  // "softmax" | "temperature_scaled" | "ensemble_variance"
+  bool   is_reliable      = 5;  // service's own judgement of its output
+}
+
+message FeatureAttribution {
+  string feature = 1;
+  float  contribution = 2;
+}
+
+enum ComputeDevice {
+  DEVICE_UNSPECIFIED = 0;
+  DEVICE_CPU         = 1;
+  DEVICE_CUDA        = 2;
+  DEVICE_MOCK        = 3;
+}
+
+message ModelInfo {
+  string model_id = 1;
+  string model_version = 2;
+  string model_sha = 3;
+  string framework = 4;              // "pytorch-2.5" | "onnxruntime-1.20"
+  string trained_on = 5;             // "DroneRF v1.0"
+  repeated string labels = 6;
+  map<string, float> eval_metrics = 7;  // accuracy, precision, recall, f1
+  google.protobuf.Timestamp trained_at = 8;
+  uint32 p95_latency_ms = 9;
+  bool   requires_gpu = 10;
+}
+
+// ── Referenced-but-undefined types, completed minimally (see file header note 2) ──
+
+// Batch form of Infer: a set of independent inference requests answered together.
+message BatchInferenceRequest {
+  repeated InferenceRequest requests = 1;
+}
+
+message BatchInferenceResponse {
+  repeated InferenceResponse responses = 1;
+}
+
+// Selects which model a GetModelInfo call describes. An empty model_version means the
+// service's currently-served version.
+message ModelInfoRequest {
+  string model_id = 1;
+  string model_version = 2;
+}
+
+// Liveness/readiness probe for a specific model, mirroring the /health/ready endpoint
+// every AI service exposes (ARCHITECTURE.md section 6.1).
+message HealthRequest {
+  string model_id = 1;
+}
+
+message HealthResponse {
+  enum ServingStatus {
+    SERVING_STATUS_UNSPECIFIED = 0;
+    SERVING                    = 1;
+    NOT_SERVING                = 2;
+  }
+  ServingStatus status = 1;
+  string detail = 2;
+}

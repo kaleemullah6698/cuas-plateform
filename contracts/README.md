@@ -3,34 +3,39 @@
 Protobuf definitions shared by the platform services, the AI services, and the
 frontend. Single source of truth for every wire format in the system.
 
-## Contents to be authored
+## Contents
 
-| File | Specification | Why it matters |
+| File | Specification | Status |
 |---|---|---|
-| `proto/detection.proto` | ARCHITECTURE.md section 5.3 | The canonical `DetectionRecord`. Every modality normalises into this shape; it is what makes the platform sensor-agnostic. |
-| `proto/inference.proto` | ARCHITECTURE.md section 6.2 | The `InferenceService` contract. **The single boundary between Track A and Track B.** |
-| `proto/track.proto` | Section 4.1.5 | Track lifecycle events. |
-| `proto/alert.proto` | Section 4.1.8 | Alert and incident events. |
+| `proto/detection.proto` | ARCHITECTURE.md section 5.3 | **Authored (M1).** The canonical `DetectionRecord`; every modality normalises into it. |
+| `proto/inference.proto` | ARCHITECTURE.md section 6.2 | **Authored (M1).** The `InferenceService` contract — the single boundary between Track A and Track B. |
+| `proto/track.proto` | Section 4.1.5 | Deferred to M5 — event field schemas are defined when track-correlation defines them. |
+| `proto/alert.proto` | Section 4.1.8 | Deferred to M7 — same reason, with alert-service. |
 
-Both specifications are already written in full in ARCHITECTURE.md and can be
-lifted verbatim.
+## Generating bindings
 
-## Priority
+```bash
+buf lint                                 # STANDARD ruleset, exceptions documented in buf.yaml
+buf breaking --against '.git#branch=main'
+buf generate                             # -> generated/{java,python,typescript}
+```
 
-Per ARCHITECTURE.md sections 1.4 and 6.1, the inference contract is frozen at
-the end of Week 2 and versioned thereafter. Until `detection.proto` and
-`inference.proto` exist, Track B has nothing to build against and the
-mock-provider decoupling does not function. **These are the highest-value files
-in the repository.**
+The Java bindings are also produced and compiled by the Maven module
+`backend/contracts` (`mvn -pl contracts -am verify`), which runs `buf generate`
+in `generate-sources` and compiles `generated/java` into the shared contracts jar.
+`buf` must be on `PATH` (a documented prerequisite).
 
 ## Rules
 
-- `generated/` is build output. Never edit by hand, never commit manually.
+- `generated/` is build output. Never edit by hand, never commit manually (git-ignored).
 - `buf breaking` runs in CI against `main`; an incompatible change fails the
   build unless the topic major version is bumped (section 5.4).
 - Backward compatibility is enforced: add optional fields, never reuse or
   repurpose a field number.
+- Lint exceptions in `buf.yaml` exist only where a STANDARD rule conflicts with the
+  contract fixed by ARCHITECTURE.md; each is documented in place.
 
 ## Status
 
-Scaffold only. No `.proto` files authored yet.
+M1 complete. `detection.proto` and `inference.proto` authored and verified to
+generate, compile, import, and round-trip in Java, Python, and TypeScript.

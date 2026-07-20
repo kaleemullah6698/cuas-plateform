@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>pk.nust.cuas</groupId>
+    <artifactId>platform-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../platform-parent/pom.xml</relativePath>
+  </parent>
+
+  <artifactId>contracts</artifactId>
+  <name>contracts</name>
+  <description>
+    Java bindings for the platform Protobuf contracts (ARCHITECTURE.md sections 5.3, 6.2).
+    Proto sources live in ../../contracts/proto; buf generates Java into
+    ../../contracts/generated/java, which this module compiles into the shared contracts jar.
+  </description>
+
+  <properties>
+    <!-- Location of the polyglot contracts directory, relative to this module. -->
+    <contracts.dir>${project.basedir}/../../contracts</contracts.dir>
+    <!-- buf executable; override with -Dbuf.executable=/path/to/buf when not on PATH. -->
+    <buf.executable>buf</buf.executable>
+    <!-- Set -Dbuf.skip=true to compile already-generated sources without re-running buf. -->
+    <buf.skip>false</buf.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-protobuf</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-stub</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-api</artifactId>
+    </dependency>
+    <!-- The generated gRPC stubs are annotated with @javax.annotation.Generated. -->
+    <dependency>
+      <groupId>javax.annotation</groupId>
+      <artifactId>javax.annotation-api</artifactId>
+    </dependency>
+
+    <!-- Test -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Regenerate the language bindings from the proto sources before compiling. Runs
+        `buf generate` from the contracts directory so the Java under generated/java is always
+        in step with the protos. Requires buf on PATH (a documented prerequisite); skip with
+        -Dbuf.skip=true when generation has already been performed.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>${exec-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>buf-generate</id>
+            <phase>generate-sources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <skip>${buf.skip}</skip>
+              <executable>${buf.executable}</executable>
+              <workingDirectory>${contracts.dir}</workingDirectory>
+              <arguments>
+                <argument>generate</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Add the buf-generated Java as a compile source root. -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>${build-helper-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>add-generated-sources</id>
+            <phase>generate-sources</phase>
+            <goals><goal>add-source</goal></goals>
+            <configuration>
+              <sources>
+                <source>${contracts.dir}/generated/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -32,6 +32,9 @@
     <mapstruct.version>1.6.3</mapstruct.version>
     <jacoco.version>0.8.12</jacoco.version>
     <logstash-encoder.version>8.0</logstash-encoder.version>
+    <javax-annotation.version>1.3.2</javax-annotation.version>
+    <build-helper-plugin.version>3.6.0</build-helper-plugin.version>
+    <exec-plugin.version>3.5.0</exec-plugin.version>
   </properties>
 
   <dependencyManagement>
@@ -42,6 +45,26 @@
         <version>${grpc.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <!--
+        Standardise on protoc v29.2 / protobuf-java 4.29.2 across the platform. This overrides
+        the older protobuf-java version managed by the Spring Boot BOM, so that hand-written code
+        and the buf-generated bindings (produced by the pinned v29.2 plugins) share one runtime.
+      -->
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${protobuf.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java-util</artifactId>
+        <version>${protobuf.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.annotation</groupId>
+        <artifactId>javax.annotation-api</artifactId>
+        <version>${javax-annotation.version}</version>
       </dependency>
       <dependency>
         <groupId>org.testcontainers</groupId>
