@@ -9,8 +9,9 @@
 #   docker compose --profile platform up -d
 #   AI_PROVIDER_MODE=mock docker compose --profile platform up -d
 #
-# Scaffold only. Services are declared and images pinned;
-# no application wiring, credentials, or topic/schema initialisation.
+# Infrastructure services are configured for a working first-run (KRaft Kafka with advertised
+# listeners, health checks, host port mappings, and the init scripts mounted). Platform/AI
+# service wiring is still added per milestone.
 
 x-service-defaults: &defaults
   restart: unless-stopped
@@ -27,54 +28,93 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cuas}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cuas}
+    ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./infrastructure/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init.sh:ro
+      # Runs once on first initialisation: creates the ten per-service databases.
+      - ./infrastructure/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cuas}"]
       interval: 10s
+      timeout: 5s
       retries: 5
+      start_period: 10s
 
   kafka:
     <<: *defaults
     profiles: [infra, platform, ai]
     image: confluentinc/cp-kafka:7.8.0
     environment:
-      KAFKA_PROCESS_ROLES: broker,controller
+      # ── KRaft single-node (no ZooKeeper) ──
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
       KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093
+      # Two client listeners: PLAINTEXT for in-network services (kafka:9092),
+      # PLAINTEXT_HOST for host tooling and manual testing (localhost:29092).
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-    volumes: [kafkadata:/var/lib/kafka/data]
+    ports: ["29092:29092"]
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+      # create-topics.sh is mounted so it can be run with: docker compose exec kafka bash /scripts/create-topics.sh
+      - ./infrastructure/kafka:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
 
   schema-registry:
     <<: *defaults
     profiles: [infra, platform, ai]
     image: confluentinc/cp-schema-registry:7.8.0
-    depends_on: [kafka]
+    depends_on:
+      kafka: {condition: service_healthy}
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+    ports: ["8081:8081"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/subjects >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   elasticsearch:
     <<: *defaults
     profiles: [infra, platform, ai]
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
     environment:
+      # Security is disabled for the development profile only, to keep first-run and health
+      # checks unauthenticated. Production re-enables xpack.security per ARCHITECTURE.md 7.9.
       - discovery.type=single-node
-      - xpack.security.enabled=true
+      - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports: ["9200:9200"]
     volumes: [esdata:/usr/share/elasticsearch/data]
+    # Readiness is polled from the host on the mapped 9200 port (scripts/verify-infra.sh),
+    # avoiding an assumption about which HTTP client the image bundles.
 
   kibana:
     <<: *defaults
     profiles: [infra]
     image: docker.elastic.co/kibana/kibana:8.17.0
-    depends_on: [elasticsearch]
+    depends_on:
+      elasticsearch: {condition: service_started}
     ports: ["5601:5601"]
 
   redis:
@@ -82,14 +122,25 @@ services:
     profiles: [infra, platform, ai]
     image: redis:7.4-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
     volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
     <<: *defaults
     profiles: [infra, platform, ai]
     image: minio/minio:latest
     command: server /data --console-address ":9090"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports: ["9000:9000", "9090:9090"]
     volumes: [miniodata:/data]
+    # Readiness is polled from the host on the mapped 9000 port (scripts/verify-infra.sh).
 
   # ── Platform services (Track A) ─────────────────────────────────────
   api-gateway:

@@ -8,8 +8,22 @@
 | Maven | 3.9+ | Backend build |
 | Node.js | 22+ | Frontend build |
 | Python | 3.12+ | AI services |
-| Docker | with Compose v2 | Full-system development |
+| Docker | Desktop, with Compose v2 | Full-system development, integration tests |
 | `buf` | latest | Protobuf lint, breaking-change detection, codegen |
+
+### Installing Docker Desktop (Windows) — a manual, admin step
+
+Docker Desktop cannot be installed by an unprivileged or non-interactive process; it needs
+administrator elevation, license acceptance, and usually a reboot. Install it once, by hand:
+
+1. Download **Docker Desktop for Windows** from `https://www.docker.com/products/docker-desktop/`.
+2. Run the installer **as Administrator**; keep the **WSL 2** backend option enabled.
+3. Reboot if prompted, then launch Docker Desktop and accept the service agreement.
+4. Ensure your account is in the **docker-users** group (the installer normally adds it).
+5. Confirm: `docker version` and `docker compose version` (Compose **v2**).
+
+Once Docker is running, `bash scripts/verify-infra.sh` performs the entire infrastructure
+acceptance test end-to-end (see [Full system with Docker](#full-system-with-docker)).
 
 ---
 
@@ -31,8 +45,8 @@
 | `bash -n create-topics.sh` + dry-run | ✅ Executed | M1 — syntax OK; dry-run enumerates 24 topics (18 primary + 6 DLQ) |
 | Full backend `mvn verify` (all 12 services) | ⬜ Not yet | Services are still scaffold; verified per milestone as implemented |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
-| `docker compose --profile infra up -d` | ⬜ Not yet | **Docker not installed in the development environment used so far.** Required to run infra + apply topics/schemas live; see Prerequisites. |
-| `create-topics.sh` live against Kafka | ⬜ Not yet | Needs Docker/Kafka; carried as an open M0/M1 infra item |
+| `docker compose --profile infra up -d` | ⬜ Not yet | **Docker not installed (requires an admin, interactive setup — see above).** Compose is configured for a working first run (KRaft Kafka, health checks, script mounts). |
+| `scripts/verify-infra.sh` (DBs + topics + health) | ⬜ Not yet | Script written and syntax-checked; runs the full acceptance test once Docker is up. Open M0/M1 infra item. |
 
 ### Toolchain note
 
@@ -111,10 +125,23 @@ buf generate
 
 ## Full system with Docker
 
+**Infrastructure acceptance test (one command).** Once Docker Desktop is running, this brings up
+the infra profile, waits for health, applies the database and topic catalogues, and asserts all
+ten databases, all twenty-four topics, and Schema Registry / Redis / MinIO / Elasticsearch:
+
+```bash
+bash scripts/verify-infra.sh
+```
+
+Manual equivalents:
+
 ```bash
 docker compose --profile infra up -d       # infrastructure only
 docker compose --profile platform up -d    # + Track A services
 docker compose --profile ai up -d          # + Track B AI services
+
+# Databases are created automatically on first postgres init. Topics are declared explicitly:
+docker compose exec kafka bash /scripts/create-topics.sh
 ```
 
 The two-track switch (ARCHITECTURE.md §6.4):
