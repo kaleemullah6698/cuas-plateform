@@ -14,6 +14,12 @@
 #
 set -uo pipefail
 
+# On Windows/Git Bash (MSYS), a container-absolute path like /scripts/create-topics.sh is
+# rewritten into a host path (C:/Program Files/Git/scripts/...) before it reaches the container.
+# Disabling that conversion keeps `docker compose exec` arguments intact. No effect elsewhere.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL='*'
+
 cd "$(dirname "$0")/.."   # repository root
 
 PASS=0

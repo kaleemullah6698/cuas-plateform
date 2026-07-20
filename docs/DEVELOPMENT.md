@@ -13,6 +13,10 @@
 
 ### Installing Docker Desktop (Windows) — a manual, admin step
 
+> **Status:** installed and verified in the development environment — Docker Engine 29.6.1,
+> Compose v5.3.0, WSL 2 backend. The infrastructure profile has been brought up and fully
+> verified (see the table below). These steps are retained for a fresh machine.
+
 Docker Desktop cannot be installed by an unprivileged or non-interactive process; it needs
 administrator elevation, license acceptance, and usually a reboot. Install it once, by hand:
 
@@ -36,17 +40,22 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | `python scaffold` (structure generation) | ✅ Executed | 429 directories, 595 files |
 | Toolchain (`java -version`, `mvn -v`) | ✅ Executed | Portable Temurin JDK 21.0.11 + Maven 3.9.9 under `../.toolchain/` (git-ignored) |
 | `mvn -pl platform-commons -am verify` | ✅ Executed | M0 — BUILD SUCCESS, 23/23 tests pass |
-| `bash -n init-databases.sh` | ✅ Executed | Syntax OK; not yet run against a live Postgres (needs Docker) |
+| `bash -n init-databases.sh` | ✅ Executed | Syntax OK (superseded by the live run below) |
 | `buf lint` / `buf build` | ✅ Executed | M1 — clean (documented exceptions for the fixed contract) |
 | `buf generate` (Java + Python + TS) | ✅ Executed | M1 — 50 Java, 6 Python, 2 TS files generated |
 | `mvn -pl contracts -am verify` | ✅ Executed | M1 — BUILD SUCCESS, 15/15 serde tests; runs `buf generate` then compiles generated Java |
 | Python bindings import + round-trip | ✅ Executed | M1 — protobuf 5.29 + grpcio on Python 3.14; round-trip + gRPC stubs verified |
 | TypeScript bindings `tsc --noEmit` (strict) | ✅ Executed | M1 — protobuf-es v2; typecheck passed |
 | `bash -n create-topics.sh` + dry-run | ✅ Executed | M1 — syntax OK; dry-run enumerates 24 topics (18 primary + 6 DLQ) |
-| Full backend `mvn verify` (all 12 services) | ⬜ Not yet | Services are still scaffold; verified per milestone as implemented |
+| Full backend `mvn clean install` (16 modules) | ✅ Executed | BUILD SUCCESS, 38/38 tests (23 commons + 15 contracts); `buf generate` runs inside the build |
+| `docker compose --profile infra up -d` | ✅ Executed | All 7 infra containers up; postgres/kafka/schema-registry/redis report healthy |
+| `init-databases.sh` live against PostgreSQL 17 | ✅ Executed | Ran automatically on first init; **all 10 databases created**, per-database connections verified |
+| `create-topics.sh` live against Kafka | ✅ Executed | **24 topics created** (18 primary + 6 DLQ); partitions/retention/cleanup match §5.2; idempotent on re-run |
+| `scripts/verify-infra.sh` (DBs + topics + health) | ✅ Executed | **33 passed, 0 failed** |
+| Kafka produce/consume round-trip | ✅ Executed | Message produced and consumed; host listener `localhost:29092` correctly advertised |
+| Host reachability of all mapped ports | ✅ Executed | 5432, 29092, 8081, 9200, 6379, 9000, 9090, 5601 all reachable |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
-| `docker compose --profile infra up -d` | ⬜ Not yet | **Docker not installed (requires an admin, interactive setup — see above).** Compose is configured for a working first run (KRaft Kafka, health checks, script mounts). |
-| `scripts/verify-infra.sh` (DBs + topics + health) | ⬜ Not yet | Script written and syntax-checked; runs the full acceptance test once Docker is up. Open M0/M1 infra item. |
+| Testcontainers-based integration tests | ⬜ Not yet | First exercised in M2 (auth/audit persistence); Docker engine is now available for it |
 
 ### Toolchain note
 

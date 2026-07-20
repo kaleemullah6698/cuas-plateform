@@ -63,16 +63,18 @@ PostgreSQL (10 schemas), Kafka + Schema Registry (KRaft, auto-create disabled), 
 
 ## 1.7 Blockers — retire before implementation
 
-| # | Blocker | Impact | Retired in |
-|---|---|---|---|
-| B1 | **`contracts/proto/*` empty.** `detection.proto`, `inference.proto`, event protos unwritten. | Nothing downstream compiles. The highest-value gap in the repo. | M1 |
-| B2 | **Toolchain unverified.** No JDK/Maven on the generating machine; `mvn verify` and `npm ci` never run. | Build may fail on POM coordinates or dependency versions on first attempt. | M0 |
-| B3 | **`platform-commons` empty.** Every service depends on it. | Services can't share cross-cutting concerns; duplication starts immediately if skipped. | M0 |
-| B4 | **Kafka topics not declared.** `create-topics.sh` is a placeholder; auto-create is off by design. | Producers/consumers fail at runtime. | M1 |
-| B5 | **DB init absent.** `init-databases.sh` is a placeholder. | Services can't connect to their schema. | M0 |
-| B6 | **`track-correlation` is stateful, sector-partitioned** (§4.1.5) — the hardest service. | Highest design risk; must not be rushed. | M5, deliberately isolated |
+**All of B1–B5 are now CLOSED.** B6 remains an open design risk, addressed at its milestone.
 
-**None can be worked around. M0 and M1 exist solely to retire B1–B5 before any business logic.**
+| # | Blocker | Impact | Retired in | Status |
+|---|---|---|---|---|
+| B1 | **`contracts/proto/*` empty.** `detection.proto`, `inference.proto`, event protos unwritten. | Nothing downstream compiles. The highest-value gap in the repo. | M1 | ✅ **Closed** — both protos authored, generating and round-tripping in Java/Python/TS |
+| B2 | **Toolchain unverified.** No JDK/Maven on the generating machine; `mvn verify` and `npm ci` never run. | Build may fail on POM coordinates or dependency versions on first attempt. | M0 | ✅ **Closed** — JDK 21 + Maven 3.9.9; full reactor `clean install` green (16 modules, 38 tests) |
+| B3 | **`platform-commons` empty.** Every service depends on it. | Services can't share cross-cutting concerns; duplication starts immediately if skipped. | M0 | ✅ **Closed** — implemented, 23/23 tests |
+| B4 | **Kafka topics not declared.** `create-topics.sh` is a placeholder; auto-create is off by design. | Producers/consumers fail at runtime. | M1 | ✅ **Closed** — 24 topics created live, configs verified, produce/consume round-trip passes |
+| B5 | **DB init absent.** `init-databases.sh` is a placeholder. | Services can't connect to their schema. | M0 | ✅ **Closed** — 10 databases created live on PostgreSQL 17, per-database connections verified |
+| B6 | **`track-correlation` is stateful, sector-partitioned** (§4.1.5) — the hardest service. | Highest design risk; must not be rushed. | M5, deliberately isolated | ⬜ Open — by design, addressed at M5 |
+
+**None can be worked around. M0 and M1 existed solely to retire B1–B5 before any business logic — all five are now closed, and the infrastructure is live and verified. M2 may begin.**
 
 ---
 
@@ -179,8 +181,9 @@ Later milestones receive this treatment at their start (Phase 5 rule). Detailing
 **Completion checklist:**
 - [x] `mvn -pl platform-commons -am verify` green — BUILD SUCCESS, 23/23 tests
 - [x] JDK 21 + Maven confirmed present (retires B2); `docs/DEVELOPMENT.md` verification table updated
-- [~] All 10 schemas: `init-databases.sh` implemented + syntax-checked; **live run pending Docker** (partially retires B5)
+- [x] All 10 databases created — `init-databases.sh` ran live against PostgreSQL 17 on first init; per-database connections verified (**retires B5**)
 - [x] Correlation ID flows through the filter in a test (`CorrelationIdFilterTest`)
+- [x] Infra profile healthy — all 7 containers up; `scripts/verify-infra.sh` reports **33 passed, 0 failed**
 
 **Implementation notes — deviations from the pre-implementation sketch above (docs kept in sync with code):**
 - `DomainException` is an **open abstract class, not `sealed`.** A sealed root cannot be extended by the services that must define their own domain exceptions; sealing it was a specification error, corrected here.
@@ -189,7 +192,7 @@ Later milestones receive this treatment at their start (Phase 5 rule). Detailing
 - `TracingConfig` (OpenTelemetry) **deferred to M8**, where end-to-end tracing is actually exercised. `MtlsClientConfig` **deferred to M6**, where the first inter-service client exists. `ValidationMessages` **deferred** until a genuinely shared constraint exists. Building them now would be placeholder code with no consumer (violates the "no placeholder implementations" rule).
 - Delivered classes: `CorrelationId`, `CorrelationIdFilter`, `DomainException`, `ProblemDetailFactory`, `BaseExceptionHandler`, `MetricsConfig`, `CommonsAutoConfiguration` (Spring Boot auto-configuration, activates by dependency alone).
 
-**Definition of Done:** commons builds and tests green ✅. Infra bring-up (`docker compose --profile infra up -d` healthy on Postgres/Kafka/Redis/Elasticsearch) and the live schema creation are **specified and syntax-checked but not yet observed** — the M0 environment had no Docker. First Docker-equipped milestone verifies them. The verification table reflects exactly what ran.
+**Definition of Done: MET ✅.** Commons builds and tests green (23/23). Infra brought up and verified live — Postgres, Kafka, Schema Registry, Redis, Elasticsearch, and MinIO all reachable and functional; all 10 databases created. Blockers **B2, B3, B5 closed**.
 
 ## Milestone M1 — Contracts & messaging substrate
 
@@ -215,7 +218,7 @@ Later milestones receive this treatment at their start (Phase 5 rule). Detailing
 - [x] `detection.proto` + `inference.proto` authored verbatim from §5.3/§6.2 (retires B1)
 - [x] Bindings generated for Java, Python, TS via `buf generate`
 - [x] `buf lint` green (documented exceptions for the fixed contract); `buf breaking` configured
-- [~] All §5.2 topics: `create-topics.sh` implements the full catalogue, syntax-checked, dry-run shows 24 topics (18 primary + 6 DLQ); **live creation pending Docker** (partially retires B4)
+- [x] All §5.2 topics created live — **24 topics** (18 primary + 6 DLQ); partitions, retention, and cleanup policy verified against the catalogue; produce/consume round-trip passes; idempotent on re-run (**retires B4**)
 - [x] Round-trip test per message passes — Java (15 tests), Python (import + round-trip + gRPC stubs), TypeScript (strict `tsc`)
 
 **Implementation notes — deviations from the sketch above (docs kept in sync with code):**
@@ -225,7 +228,7 @@ Later milestones receive this treatment at their start (Phase 5 rule). Detailing
 - **DLQ interpretation.** §5.2's single `*.DLQ` row is realised as one `<topic>.dlq` per consumed pipeline topic (6 total) — the hops where a poison message must be quarantined (§5.6).
 - **Java bindings compiled via a Maven module** (`backend/contracts`) that runs `buf generate` in `generate-sources` and compiles `contracts/generated/java`. protobuf-java pinned to 4.29.2 platform-wide (overriding the Spring Boot BOM) to match the protoc v29.2 plugins.
 
-**Definition of Done:** the two critical contracts exist and generate cleanly in three languages, each verified to compile/import/round-trip ✅. The topic catalogue is declarative and syntax-verified; **live application awaits Docker**. `buf breaking` is configured for CI. Track A and Track B can now proceed in parallel against a frozen contract.
+**Definition of Done: MET ✅.** The two critical contracts exist and generate cleanly in three languages, each verified to compile/import/round-trip. The topic catalogue is declarative and **applied live against Kafka (24 topics, configs verified)**. `buf breaking` is configured for CI. Blocker **B4 closed**. Track A and Track B can now proceed in parallel against a frozen contract.
 
 ---
 
