@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+// Audit event contract — ARCHITECTURE.md section 7.5.
+//
+// Carried on the platform.audit.v1 topic. Every service publishes one of these for every
+// security-relevant action; audit-service is the sole consumer and appends each to a
+// hash-chained, append-only log.
+//
+// Field set is taken from the audit_log table definition in section 7.5. The chain fields
+// (prev_hash, record_hash) are deliberately NOT part of this message: they are computed by
+// audit-service at append time. A publisher that could set them could forge the chain.
+package pk.nust.cuas.audit.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.audit.v1";
+option java_outer_classname = "AuditProto";
+
+message AuditEvent {
+  // Idempotency key. audit-service rejects a duplicate audit_id, so at-least-once
+  // delivery cannot produce a duplicate chain entry (section 5.7).
+  string audit_id = 1;
+
+  google.protobuf.Timestamp occurred_at = 2;   // when the action happened, at the source
+
+  string     actor_id   = 10;                  // user id, service name, or "system"
+  ActorType  actor_type = 11;
+  string     actor_ip   = 12;                  // optional; empty when not applicable
+  string     session_id = 13;                  // optional
+
+  string action        = 20;                   // e.g. LOGIN_SUCCEEDED, ROLE_ASSIGNED
+  string resource_type = 21;                   // e.g. USER, ROLE, ALERT
+  string resource_id   = 22;                   // optional
+
+  AuditOutcome outcome = 30;
+
+  // Structured detail, canonicalised (keys sorted) before hashing so the digest is
+  // reproducible. Carries before/after diffs for configuration and policy changes.
+  map<string, string> details = 31;
+
+  string correlation_id = 40;                  // end-to-end trace
+}
+
+enum ActorType {
+  ACTOR_TYPE_UNSPECIFIED = 0;
+  ACTOR_TYPE_USER        = 1;
+  ACTOR_TYPE_SERVICE     = 2;
+  ACTOR_TYPE_SYSTEM      = 3;
+}
+
+enum AuditOutcome {
+  AUDIT_OUTCOME_UNSPECIFIED = 0;
+  AUDIT_OUTCOME_SUCCESS     = 1;
+  AUDIT_OUTCOME_FAILURE     = 2;
+  AUDIT_OUTCOME_DENIED      = 3;
+}

@@ -1,0 +1,29 @@
+# Test configuration. The datasource is supplied per-test by Testcontainers via
+# @DynamicPropertySource; nothing here points at a real environment.
+
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:29092
+    listener:
+      # Listeners are started explicitly by the tests that exercise them, so a broker is not
+      # required for the persistence and API tests.
+      auto-startup: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Never contacted: tests authenticate with mock authorities rather than real tokens.
+          jwk-set-uri: http://localhost:8081/auth/jwks
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: DEBUG
+    org.testcontainers: INFO

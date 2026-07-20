@@ -54,8 +54,20 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | `scripts/verify-infra.sh` (DBs + topics + health) | ✅ Executed | **33 passed, 0 failed** |
 | Kafka produce/consume round-trip | ✅ Executed | Message produced and consumed; host listener `localhost:29092` correctly advertised |
 | Host reachability of all mapped ports | ✅ Executed | 5432, 29092, 8081, 9200, 6379, 9000, 9090, 5601 all reachable |
+| `mvn clean verify` (M2.1) | ✅ Executed | 16 modules, **97 tests**, 0 failures |
+| Testcontainers integration tests | ✅ Executed | M2.1 — 12 tests against real PostgreSQL 17 (Flyway migration, hash chain, DB-enforced immutability, concurrent append) |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
-| Testcontainers-based integration tests | ⬜ Not yet | First exercised in M2 (auth/audit persistence); Docker engine is now available for it |
+
+### Testcontainers on Docker Engine 29
+
+docker-java falls back to Docker API **1.32**, which Engine 29 rejects with an opaque HTTP 400
+(`Could not find a valid Docker environment`, every strategy failing). The API version is pinned
+to **1.41** via the surefire `api.version` system property in `platform-parent`, so integration
+tests work without per-machine configuration.
+
+Note it is the **system property `api.version`** that docker-java reads — the `DOCKER_API_VERSION`
+environment variable is honoured by the `docker` CLI but *not* by docker-java, which is why
+setting the env var alone does not fix it.
 
 ### Toolchain note
 

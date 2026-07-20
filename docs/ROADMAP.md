@@ -116,6 +116,32 @@ Objective: a buildable, observable skeleton with infrastructure running. Deliver
 Objective: freeze every wire contract. Services: `contracts`. Deliverables: `detection.proto` (§5.3), `inference.proto` (§6.2), `track.proto`, `alert.proto` event schemas; `buf` lint + breaking + generate for Java/Python/TS; `create-topics.sh` declaring the full §5.2 catalogue; Schema Registry in `BACKWARD` mode. Dependencies: M0. Expected output: generated bindings in three languages; topics created; `buf breaking` wired into CI. Testing: `buf lint`; a round-trip serialise/deserialise test per message; a topic-existence check.
 
 **M2 — Identity & audit**
+
+Split into three sub-milestones, ordered by dependency (`contracts → audit → user → auth`): audit
+is a pure event consumer that calls nothing, so it is buildable first and is the sink the other two
+require; auth depends on user-service for permission resolution.
+
+| Sub-milestone | Scope | Status |
+|---|---|---|
+| **M2.1** | Shared contracts (`audit.proto`, `Permission`/`Role`, audit publisher) + `audit-service` | ✅ **Complete** — `mvn clean verify` green, 16 modules, 97 tests (12 Testcontainers) |
+| **M2.2** | `user-service` — users, roles, effective-permission resolution, self-escalation and separation-of-duty enforcement | ⬜ Next |
+| **M2.3** | `auth-service` — Argon2id, TOTP MFA, RS256 JWT, rotating refresh with reuse detection | ⬜ Pending |
+
+**M2.1 delivered:** `audit.proto` (fields from the §7.5 table); `Permission`/`Role` encoding the
+§7.4 matrix with the ADMIN-cannot-`audit:export` separation-of-duty invariant asserted at startup;
+fail-closed `AuditPublisher` (synchronous send — an action that cannot be recorded does not
+happen); `audit-service` with a Flyway migration carrying the §7.5 schema and the
+`DO INSTEAD NOTHING` immutability rules, a length-delimited SHA-256 hash chain, advisory-lock
+serialised append, Kafka consumer, and an RBAC-gated query/verify API.
+
+**Two defects found and fixed during M2.1:**
+- *Timestamp precision.* `occurredAt` was hashed at nanosecond precision but PostgreSQL
+  `TIMESTAMPTZ` stores microseconds, so any sub-microsecond event failed its own verification on
+  reload — a false tamper alarm. Timestamps are now truncated to microseconds at construction, and
+  a regression test pins it.
+- *Testcontainers on Engine 29.* docker-java negotiates API 1.32, which Engine 29 rejects with
+  HTTP 400. Pinned to 1.41 via the `api.version` system property in `platform-parent`.
+
 Objective: authenticate, authorise, and record. Services: `auth-service`, `user-service`, `audit-service`. Deliverables: Argon2id credentials, TOTP MFA, RS256 JWT issue/rotate/revoke with reuse detection; the §7.4 RBAC model with self-escalation and separation-of-duty enforcement; hash-chained append-only audit log with checkpointing and chain-verify. Dependencies: M0, M1. Expected output: login→MFA→token flow; permission resolution; every mutation lands an audit record; chain verifies. Testing: domain unit tests for token/rotation rules; Testcontainers for persistence and the audit chain; endpoint tests for success/400/403; an idempotency test on audit writes.
 
 **M3 — Edge (gateway)**

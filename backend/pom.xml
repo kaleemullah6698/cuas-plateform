@@ -14,8 +14,9 @@
 
   <modules>
     <module>platform-parent</module>
-    <module>platform-commons</module>
+    <!-- contracts precedes platform-commons: the shared audit publisher maps to the wire types -->
     <module>contracts</module>
+    <module>platform-commons</module>
     <module>api-gateway</module>
     <module>auth-service</module>
     <module>user-service</module>
