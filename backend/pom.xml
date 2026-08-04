@@ -21,6 +21,7 @@
     <module>auth-service</module>
     <module>user-service</module>
     <module>sensor-ingestion</module>
+    <module>sensor-simulator</module>
     <module>track-correlation</module>
     <module>ai-orchestrator</module>
     <module>threat-assessment</module>

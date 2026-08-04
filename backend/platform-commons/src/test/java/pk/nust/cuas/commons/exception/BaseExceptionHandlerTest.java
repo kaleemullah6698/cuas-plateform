@@ -82,4 +82,17 @@ class BaseExceptionHandlerTest {
         // The internal message must never reach the caller.
         assertThat(problem.getDetail()).doesNotContain("secret internal detail");
     }
+
+    @Test
+    void onNoResourceReturns404NotAnOpaque500() {
+        // An unmatched route must read as "not found", not "server error"; without a dedicated
+        // handler the catch-all would render Spring's NoResourceFoundException as a 500.
+        var ex = new org.springframework.web.servlet.resource.NoResourceFoundException(
+                org.springframework.http.HttpMethod.POST, "/ingest/replay");
+
+        ProblemDetail problem = handler.onNoResource(ex);
+
+        assertThat(problem.getStatus()).isEqualTo(404);
+        assertThat(problem.getProperties()).containsEntry("code", "not-found");
+    }
 }

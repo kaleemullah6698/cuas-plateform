@@ -29,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -38,7 +39,10 @@ import org.testcontainers.utility.DockerImageName;
 import pk.nust.cuas.detection.v1.DetectionRecord;
 import pk.nust.cuas.detection.v1.SensorModality;
 import pk.nust.cuas.ingestion.api.dto.BatchIngestResponse;
+import pk.nust.cuas.ingestion.api.dto.ReplaySummary;
+import pk.nust.cuas.ingestion.application.HealthEmissionService;
 import pk.nust.cuas.ingestion.support.Detections;
+import pk.nust.cuas.ingestion.v1.SensorHealth;
 
 /**
  * The assembled service against real PostgreSQL, Kafka, and Redis — the guarantees that only hold
@@ -48,6 +52,7 @@ import pk.nust.cuas.ingestion.support.Detections;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@TestPropertySource(properties = "ingestion.replay.enabled=true")
 @Testcontainers
 class SensorIngestionPipelineIntegrationTest {
 
@@ -82,6 +87,9 @@ class SensorIngestionPipelineIntegrationTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private HealthEmissionService healthEmission;
 
     private JdbcTemplate jdbc;
 
@@ -147,6 +155,105 @@ class SensorIngestionPipelineIntegrationTest {
         assertThat(response.rejected()).isEqualTo(1);
         assertThat(response.rejections()).singleElement()
                 .satisfies(r -> assertThat(r.violations()).anyMatch(v -> v.contains("modality")));
+    }
+
+    @Test
+    void aReplayedDatasetIsNormalisedThroughTheRealPipeline() {
+        String sensorId = "replay-" + UUID.randomUUID();
+        int count = 25;
+        Instant base = Instant.parse("2026-08-04T12:00:00Z");
+
+        StringBuilder ndjson = new StringBuilder();
+        for (int seq = 1; seq <= count; seq++) {
+            ndjson.append(json(Detections.rf(sensorId, seq, base.plusSeconds(seq)))).append('\n');
+        }
+
+        ReplaySummary summary = replay(ndjson.toString());
+        assertThat(summary.total()).isEqualTo(count);
+        assertThat(summary.accepted()).isEqualTo(count);
+        assertThat(summary.rejected()).isZero();
+
+        // Every replayed detection is normalised through the real pipeline, not shortcut into storage.
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                assertThat(count("SELECT normalized_total FROM ingestion_stats WHERE sensor_id = ?", sensorId))
+                        .isEqualTo(count));
+    }
+
+    @Test
+    void replayHandlesALoadOfManyDetectionsAndNormalisesThemAll() {
+        int sensors = 4;
+        int perSensor = 500;
+        int total = sensors * perSensor; // 2,000 detections
+        Instant base = Instant.parse("2026-08-04T12:00:00Z");
+
+        StringBuilder ndjson = new StringBuilder(total * 200);
+        for (int s = 0; s < sensors; s++) {
+            String sensorId = "load-" + s + '-' + UUID.randomUUID();
+            for (int seq = 1; seq <= perSensor; seq++) {
+                ndjson.append(json(Detections.rf(sensorId, seq, base.plusSeconds(seq)))).append('\n');
+            }
+        }
+
+        long startedAt = System.nanoTime();
+        ReplaySummary summary = replay(ndjson.toString());
+        assertThat(summary.accepted()).isEqualTo(total);
+
+        // All of them flow through Kafka and normalisation, not just the intake.
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
+                assertThat(count("SELECT COALESCE(sum(normalized_total),0) FROM ingestion_stats WHERE sensor_id LIKE 'load-%'"))
+                        .isEqualTo(total));
+
+        double seconds = (System.nanoTime() - startedAt) / 1_000_000_000.0d;
+        System.out.printf("replay load: %d detections normalised in %.1fs (%.0f/s)%n",
+                total, seconds, total / seconds);
+    }
+
+    @Test
+    void healthTelemetryIsGeneratedForAReportingSensor() throws Exception {
+        String sensorId = "rf-" + UUID.randomUUID();
+        try (KafkaConsumer<String, byte[]> health = subscribe("sensor.health.v1")) {
+            post(Detections.rf(sensorId, 1L, Instant.parse("2026-08-04T12:00:00Z")));
+            // Wait until the detection has been normalised, so a health row exists to report.
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                    assertThat(count("SELECT count(*) FROM sensor_health WHERE sensor_id = ?", sensorId))
+                            .isEqualTo(1));
+
+            healthEmission.emitAll();
+
+            SensorHealth emitted = awaitHealth(health, sensorId);
+            assertThat(emitted.getStatus()).isEqualTo(SensorHealth.Status.ONLINE);
+            assertThat(emitted.hasLastSeen()).isTrue();
+        }
+    }
+
+    private ReplaySummary replay(String ndjson) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/x-ndjson"));
+        return rest.postForEntity("/ingest/replay", new HttpEntity<>(ndjson, headers),
+                ReplaySummary.class).getBody();
+    }
+
+    private SensorHealth awaitHealth(KafkaConsumer<String, byte[]> consumer, String sensorId) {
+        List<SensorHealth> matches = new ArrayList<>();
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+            ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(500));
+            for (ConsumerRecord<String, byte[]> record : records) {
+                SensorHealth parsed = SensorHealth.parseFrom(record.value());
+                if (parsed.getSensorId().equals(sensorId)) {
+                    matches.add(parsed);
+                }
+            }
+            assertThat(matches).isNotEmpty();
+        });
+        return matches.get(0);
+    }
+
+    private String json(DetectionRecord record) {
+        try {
+            return JsonFormat.printer().omittingInsignificantWhitespace().print(record);
+        } catch (Exception ex) {
+            throw new IllegalStateException("could not render detection JSON", ex);
+        }
     }
 
     private BatchIngestResponse post(DetectionRecord record) {

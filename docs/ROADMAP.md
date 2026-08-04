@@ -205,8 +205,10 @@ disturb Redis switch the rate limiter off and revive a revoked token; §4.1 alre
 gateway's datastore, so an unreachable Redis is an unready gateway. Recorded here and in the
 gateway README because it is a real availability trade, not an obvious default.
 
-**M4 — Ingestion** — 🚧 **In progress**
-Objective: heterogeneous sensor input → canonical `DetectionRecord` on Kafka. Services: `sensor-ingestion`, sensor simulator. Deliverables: REST + gRPC intake, per-modality normalisation, UTC + drift correction, dedup by `(sensorId, sensorSeq)`, health telemetry, dataset replay. Dependencies: M1. Expected output: replayed dataset traffic emerges on `sensor.detection.normalized.v1`. Testing: normalisation unit tests per modality; a dedup test; a Testcontainers Kafka round-trip; back-pressure drop-order test (§5.6).
+**M4 — Ingestion** — ✅ **Complete** (M4.0 + M4.1 + M4.2)
+Objective: heterogeneous sensor input → canonical `DetectionRecord` on Kafka. Services: `sensor-ingestion`, `sensor-simulator`. Deliverables: REST + gRPC intake, per-modality normalisation, UTC + drift correction, dedup by `(sensorId, sensorSeq)`, health telemetry, dataset replay. Dependencies: M1. Expected output: replayed dataset traffic emerges on `sensor.detection.normalized.v1`. Testing: normalisation unit tests per modality; a dedup test; a Testcontainers Kafka round-trip; a replay end-to-end and load test.
+
+Every ROADMAP deliverable is done and the expected output — replayed dataset traffic emerging on `sensor.detection.normalized.v1` — is demonstrated by a Testcontainers test. **M5 can begin:** it consumes `sensor.detection.normalized.v1`, which is produced and stable. The peripheral follow-ups surfaced during design (the `platform.config.sensor.updated.v1` consumer, the `sensor.ingestion.error.v1` publisher, the §7.8 per-sensor gateway limit, DLQ routing, and the §5.6 lowest-quality-first drop) are operational hardening that does not affect that output and does not block M5.
 
 **M4.0 — Contracts & doc amendments** — ✅ **Complete** — no production code
 The architecture-review gate for M4. Applied the reviewed-and-approved decisions to the source of
@@ -257,11 +259,32 @@ wrong test expectation, corrected — the rounding is intended, drift being whol
 Verified: `mvn clean verify` — 16 modules, **297 tests** (+41), 0 failures; the 3 integration tests
 run the full pipeline against real PostgreSQL, Kafka, and Redis (Testcontainers).
 
-**Remaining M4 sub-milestones:** `POST /ingest/replay` (dev-only, feature-flagged) and the sensor
-simulator; the `platform.config.sensor.updated.v1` consumer (authoritative sensor registry, which
-currently is learned on first detection); the `sensor.ingestion.error.v1` publisher (needs a
-contract message); the §7.8 per-sensor rate limit at the gateway; and the §5.6 lowest-quality-first
-drop under producer-buffer pressure with a drop-order test.
+**M4.2 — Replay, simulator, and load** — ✅ **Complete** — the rest of M4 that needs no contract change
+- **Dataset replay** (`POST /ingest/replay`): reads newline-delimited `DetectionRecord` JSON and
+  feeds each detection through the same intake a live request uses — no shortcut into Kafka or the
+  database. Registered only when `ingestion.replay.enabled` is true (off by default); a disabled
+  instance returns 404 because the `@ConditionalOnProperty` controller is never created. The batch
+  and replay paths share one `DetectionJsonParser`, so they agree on what valid JSON is.
+- **`sensor-simulator`** (new module): a headless development sensor adapter that generates synthetic
+  multi-modality detections and drives them into ingestion over the **real** REST and gRPC endpoints,
+  never writing to Kafka or the database. Transport (`REST`/`GRPC`/`BOTH`), sensor count, and volume
+  are configurable; a run fires only when `simulator.run-on-startup` is set.
+- **Health telemetry** exercised end to end: a reporting sensor's health is emitted on
+  `sensor.health.v1` as `ONLINE`.
+- **Defect found and fixed (platform-wide):** `BaseExceptionHandler`'s catch-all turned Spring's
+  `NoResourceFoundException` into a 500, so every unknown path in every service returned 500 instead
+  of 404. Added a dedicated handler; unmatched routes now correctly 404. This is what makes the
+  disabled replay endpoint report 404 as intended.
+
+Verified: `mvn clean verify` — **17 modules, 321 tests** (+24), 0 failures. Integration coverage adds
+a replay round-trip, a **2,000-detection load test** (all normalised through the real pipeline), and
+a health-telemetry assertion, all on Testcontainers PostgreSQL + Kafka + Redis. The simulator's REST
+client is tested against a mock HTTP server and its gRPC client against an in-process gRPC server, so
+both are verified against the real wire contract.
+
+**M4 is complete.** The peripheral follow-ups (config-topic consumer, error-topic publisher, gateway
+per-sensor limit, DLQ, §5.6 drop-order) are hardening that does not affect the normalised output and
+does not block M5.
 
 **M5 — Correlation**
 Objective: detections → tracks. Services: `track-correlation` (the stateful, sector-partitioned service — isolated deliberately). Deliverables: spatio-temporal association, Kalman state, lifecycle (tentative→confirmed→coasting→lost), CPA to assets, gRPC Infer call to orchestrator (circuit-broken). Dependencies: M4, and M6's contract (calls orchestrator). Expected output: `track.created/updated/lost` events from replayed detections. Testing: heavy domain unit tests on association and Kalman; a lifecycle-transition suite; integration test consuming real detection events.

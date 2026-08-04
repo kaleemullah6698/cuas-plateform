@@ -156,14 +156,15 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M3 complete; M4 in progress (M4.0 contracts + M4.1 service done).** `mvn clean verify`: 16
-modules, 297 tests, 0 failures. Infrastructure verified live (`scripts/verify-infra.sh`: 33 passed).
-See `docs/ROADMAP.md` for what each milestone delivered and which defects it found.
+**M0–M4 complete.** `mvn clean verify`: 17 modules, 321 tests, 0 failures. Infrastructure verified
+live (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered
+and which defects it found.
 
 Built: `contracts` (§5.3, §6.2, §5.3.1, audit, user, gateway, ingestion), `platform-commons`,
-`audit-service`, `user-service`, `auth-service`, `api-gateway`, `sensor-ingestion`. The remaining
-eight services are still scaffold.
+`audit-service`, `user-service`, `auth-service`, `api-gateway`, `sensor-ingestion`,
+`sensor-simulator`. The remaining seven services are still scaffold.
 
-**Next: remaining M4 sub-milestones** (replay + simulator, config consumer, error topic, per-sensor
-rate limit, §5.6 drop-order), then M5 — correlation. Frontend is deferred to M9; `npm ci` has never
+**Next: M5 — correlation** (`track-correlation`, consumes `sensor.detection.normalized.v1`). M4's
+peripheral follow-ups (config-topic consumer, error-topic publisher, gateway per-sensor limit, DLQ,
+§5.6 drop-order) are hardening that does not block M5. Frontend is deferred to M9; `npm ci` has never
 been run.

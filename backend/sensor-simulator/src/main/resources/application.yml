@@ -1,0 +1,27 @@
+# sensor-simulator — ARCHITECTURE.md section 4.1.4
+#
+# A development sensor adapter. Runs headless (no web server): it boots, optionally runs one
+# simulation, and exits. Set simulator.run-on-startup=true to fire a run on boot.
+
+spring:
+  application:
+    name: sensor-simulator
+  main:
+    # A client, not a service — no embedded web server.
+    web-application-type: none
+
+simulator:
+  # The ingestion service's own ports (not the gateway): M4 does not route or rate-limit the intake.
+  rest-base-url: ${INGEST_REST_URL:http://localhost:8083}
+  grpc-host: ${INGEST_GRPC_HOST:localhost}
+  grpc-port: ${INGEST_GRPC_PORT:9083}
+  transport: ${SIMULATOR_TRANSPORT:REST}    # REST | GRPC | BOTH
+  sensors: ${SIMULATOR_SENSORS:3}
+  detections-per-sensor: ${SIMULATOR_DETECTIONS_PER_SENSOR:100}
+  batch-size: ${SIMULATOR_BATCH_SIZE:50}
+  run-on-startup: ${SIMULATOR_RUN_ON_STARTUP:false}
+
+logging:
+  level:
+    root: INFO
+    pk.nust.cuas: INFO

@@ -197,9 +197,40 @@ services:
     build:
       context: .
       dockerfile: backend/sensor-ingestion/Dockerfile
+    ports: ["8083:8083", "9083:9083"]
+    environment:
+      # Redis holds the section 4.1.4 dedup window and the per-sensor clock-drift state.
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      # Dataset replay is a development aid; enable it explicitly, never in a sensor-facing deployment.
+      INGESTION_REPLAY_ENABLED: ${INGESTION_REPLAY_ENABLED:-false}
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
+      redis: {condition: service_healthy}
+
+  # Development sensor adapter. Not started with the platform; run it on demand:
+  #   docker compose --profile sim run --rm sensor-simulator
+  # It boots, drives the real ingestion intake, and exits (restart: no).
+  sensor-simulator:
+    <<: *defaults
+    profiles: [sim]
+    restart: "no"
+    build:
+      context: .
+      dockerfile: backend/sensor-simulator/Dockerfile
+    environment:
+      INGEST_REST_URL: http://sensor-ingestion:8083
+      INGEST_GRPC_HOST: sensor-ingestion
+      INGEST_GRPC_PORT: "9083"
+      SIMULATOR_TRANSPORT: ${SIMULATOR_TRANSPORT:-BOTH}
+      SIMULATOR_RUN_ON_STARTUP: "true"
+    depends_on:
+      sensor-ingestion: {condition: service_started}
+
   track-correlation:
     <<: *defaults
     profiles: [platform]

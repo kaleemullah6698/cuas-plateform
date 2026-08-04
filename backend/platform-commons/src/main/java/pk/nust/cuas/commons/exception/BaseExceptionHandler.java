@@ -11,6 +11,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Base {@code @RestControllerAdvice} translating exceptions into RFC&nbsp;7807 responses.
@@ -58,6 +59,17 @@ public abstract class BaseExceptionHandler {
         }
         log.warn("Constraint violation: {}", errors);
         return ProblemDetailFactory.validation("constraint-violation", "Constraint violation", errors);
+    }
+
+    /**
+     * Renders an unmatched route as a 404. Without this, the catch-all below would turn Spring's
+     * {@link NoResourceFoundException} into a 500, so every unknown path — including an endpoint
+     * disabled by configuration — would report a server error rather than "not found".
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ProblemDetail onNoResource(NoResourceFoundException ex) {
+        return ProblemDetailFactory.create(HttpStatus.NOT_FOUND, "not-found",
+                "The requested resource was not found.");
     }
 
     /** Last-resort handler: records the detail server-side, returns an opaque 500. */

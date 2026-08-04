@@ -69,6 +69,10 @@ ingestion:
     emit-interval: PT15S
   batch:
     max-size: 500
+  replay:
+    # Development-only. Off by default: never expose dataset replay to a deployment facing real
+    # sensors. Enable in a dev environment to push a recorded dataset through the real pipeline.
+    enabled: ${INGESTION_REPLAY_ENABLED:false}
 
 server:
   port: 8083

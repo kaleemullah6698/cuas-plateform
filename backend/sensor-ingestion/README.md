@@ -74,8 +74,20 @@ be a second, drifting source of truth for it.
 | `ingestion.health.emit-interval` | `PT15S` | How often health is recomputed and published |
 | `ingestion.batch.max-size` | `500` | Largest REST batch accepted in one request |
 
-## Not in this service (yet)
+## Dataset replay (development only)
 
-`POST /ingest/replay`, the sensor simulator, the `platform.config.sensor.updated.v1` consumer, the
-`sensor.ingestion.error.v1` publisher, and the section 5.6 lowest-quality-first drop under buffer
-pressure are the remaining M4 sub-milestones. See `docs/ROADMAP.md`.
+`POST /ingest/replay` reads newline-delimited `DetectionRecord` JSON and feeds each detection through
+the **same** intake as a live request — no shortcut into Kafka or the database — so a recorded
+dataset exercises the whole pipeline. It is registered only when `ingestion.replay.enabled` is true
+(off by default); a disabled instance returns 404, because replay can push arbitrary detections and
+must never be reachable in a sensor-facing deployment. The companion `sensor-simulator` module drives
+this and the live intake over real REST and gRPC.
+
+## Not in this service
+
+The `platform.config.sensor.updated.v1` consumer (an authoritative sensor registry; the service
+currently learns sensors on first detection), the `sensor.ingestion.error.v1` publisher (needs a
+contract message), the section 7.8 per-sensor rate limit at the gateway, DLQ routing, and the
+section 5.6 lowest-quality-first drop under producer-buffer pressure are operational-hardening
+follow-ups. None affect the normalised output that downstream services consume. See
+`docs/ROADMAP.md`.

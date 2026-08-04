@@ -1,8 +1,6 @@
 package pk.nust.cuas.ingestion.api.rest;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.protobuf.util.JsonFormat;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -10,9 +8,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +20,7 @@ import pk.nust.cuas.detection.v1.DetectionRecord;
 import pk.nust.cuas.ingestion.api.dto.BatchIngestResponse;
 import pk.nust.cuas.ingestion.api.dto.DetectionBatchRequest;
 import pk.nust.cuas.ingestion.api.dto.RejectedDetection;
+import pk.nust.cuas.ingestion.application.DetectionJsonParser;
 import pk.nust.cuas.ingestion.application.IntakeResult;
 import pk.nust.cuas.ingestion.application.RawIntakeService;
 import pk.nust.cuas.ingestion.config.IngestionProperties;
@@ -46,10 +45,13 @@ public class DetectionIntakeController {
     private static final Logger log = LoggerFactory.getLogger(DetectionIntakeController.class);
 
     private final RawIntakeService intake;
+    private final DetectionJsonParser parser;
     private final int maxBatchSize;
 
-    public DetectionIntakeController(RawIntakeService intake, IngestionProperties properties) {
+    public DetectionIntakeController(RawIntakeService intake, DetectionJsonParser parser,
+                                     IngestionProperties properties) {
         this.intake = intake;
+        this.parser = parser;
         this.maxBatchSize = properties.batch().maxSize();
     }
 
@@ -72,11 +74,12 @@ public class DetectionIntakeController {
         List<RejectedDetection> rejections = new ArrayList<>();
         int accepted = 0;
         for (int index = 0; index < detections.size(); index++) {
-            DetectionRecord record = parse(detections.get(index), index, rejections);
-            if (record == null) {
+            Optional<DetectionRecord> parsed = parser.parse(detections.get(index).toString());
+            if (parsed.isEmpty()) {
+                rejections.add(new RejectedDetection(index, 0L, List.of("malformed detection JSON")));
                 continue;
             }
-            IntakeResult result = intake.accept(record);
+            IntakeResult result = intake.accept(parsed.get());
             if (result.accepted()) {
                 accepted++;
             } else {
@@ -87,18 +90,5 @@ public class DetectionIntakeController {
         log.debug("Ingest batch: {} accepted, {} rejected", accepted, rejections.size());
         return ResponseEntity.accepted()
                 .body(new BatchIngestResponse(accepted, rejections.size(), rejections));
-    }
-
-    private DetectionRecord parse(JsonNode node, int index, List<RejectedDetection> rejections) {
-        DetectionRecord.Builder builder = DetectionRecord.newBuilder();
-        try {
-            JsonFormat.parser().ignoringUnknownFields().merge(node.toString(), builder);
-            return builder.build();
-        } catch (InvalidProtocolBufferException ex) {
-            // The parser's message can echo the malformed input, so it is logged, not returned.
-            log.warn("Detection at index {} is not valid DetectionRecord JSON: {}", index, ex.getMessage());
-            rejections.add(new RejectedDetection(index, 0L, List.of("malformed detection JSON")));
-            return null;
-        }
     }
 }

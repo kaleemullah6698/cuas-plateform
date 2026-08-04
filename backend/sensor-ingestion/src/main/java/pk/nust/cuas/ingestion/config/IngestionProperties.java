@@ -13,13 +13,15 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param drift  the clock-drift estimator
  * @param health health telemetry thresholds and cadence
  * @param batch  REST batch-intake limits
+ * @param replay the development-only dataset replay endpoint
  */
 @ConfigurationProperties(prefix = "ingestion")
 public record IngestionProperties(
         @DefaultValue Dedup dedup,
         @DefaultValue Drift drift,
         @DefaultValue Health health,
-        @DefaultValue Batch batch) {
+        @DefaultValue Batch batch,
+        @DefaultValue Replay replay) {
 
     /**
      * @param ttl how long a {@code (sensorId, sensorSeq)} pair is remembered as seen. Long enough to
@@ -52,5 +54,14 @@ public record IngestionProperties(
      *                single call can enqueue
      */
     public record Batch(@DefaultValue("500") int maxSize) {
+    }
+
+    /**
+     * @param enabled whether the {@code POST /ingest/replay} development endpoint is active. Off by
+     *                default: replay is a development aid for pushing a recorded dataset through the
+     *                real pipeline, and must never be reachable in a deployment that faces real
+     *                sensors. When off, the endpoint is not registered and returns 404.
+     */
+    public record Replay(@DefaultValue("false") boolean enabled) {
     }
 }
