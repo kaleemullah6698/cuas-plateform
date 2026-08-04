@@ -55,6 +55,9 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | Kafka produce/consume round-trip | ✅ Executed | Message produced and consumed; host listener `localhost:29092` correctly advertised |
 | Host reachability of all mapped ports | ✅ Executed | 5432, 29092, 8081, 9200, 6379, 9000, 9090, 5601 all reachable |
 | `mvn clean verify` (M3 complete) | ✅ Executed | 16 modules, **256 tests**, 0 failures |
+| `buf lint` / `buf breaking` / `buf generate` (M4.0) | ✅ Executed | `ingestion.proto` added — lint clean, breaking clean (additive), Java/Python/TS regenerated |
+| `mvn clean verify` (M4.0 contracts) | ✅ Executed | 16 modules, **256 tests**, 0 failures — new `IngestAck`/`SensorHealth`/`DetectionIngestServiceGrpc` compile into the contracts jar |
+| `create-topics.sh` catalogue (M4.0) | 📋 Declared | Added `platform.config.sensor.updated.v1`; script now declares **28 topics (22 primary + 6 DLQ)**. Live creation deferred to the next infra bring-up (M4 runtime); topic auto-creation stays disabled by design |
 | Testcontainers integration tests | ✅ Executed | 44 against real PostgreSQL 17 (audit, user, auth) — hash chain, DB-enforced immutability, concurrent append, self-escalation refusal, refresh-token reuse detection, fail-closed audit rollback. 46 against real Redis 7.4 (gateway) — token-bucket atomicity under concurrency, refill, fail-closed on an unreachable store, revocation propagation, the section 7.8 limits end to end |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 

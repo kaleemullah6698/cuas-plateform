@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+// Sensor ingestion contract — ARCHITECTURE.md sections 4.1.4 and 5.3.
+//
+// DetectionRecord (section 5.3) is the payload on the REST intake, the gRPC intake, and the
+// normalized topic. This file adds only what is specific to the ingestion service: the
+// bidirectional gRPC intake and the two messages the service emits — the per-record stream
+// acknowledgement and the per-sensor health event published on sensor.health.v1.
+//
+// These types are named in ARCHITECTURE.md section 4.1.4 but their bodies are not defined
+// there; they are completed here at the minimal shape each use dictates, and ARCHITECTURE.md
+// section 5.3 is amended to match (the same convention inference.proto follows for section 6.2).
+package pk.nust.cuas.ingestion.v1;
+
+import "google/protobuf/timestamp.proto";
+import "detection.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.ingestion.v1";
+option java_outer_classname = "IngestionProto";
+
+// Bidirectional stream intake (section 4.1.4). A sensor adapter streams DetectionRecords and
+// receives one IngestAck per record, so back-pressure and per-record rejection are visible to
+// the adapter without tearing down the stream. The stream carries the canonical DetectionRecord
+// on the wire; platform-side normalisation (ingest_time, clock_drift_ms, dedup) happens after.
+service DetectionIngestService {
+  rpc StreamDetections(stream pk.nust.cuas.detection.v1.DetectionRecord)
+      returns (stream IngestAck);
+}
+
+// Acknowledgement for one streamed detection. Kept minimal: it correlates by the sensor's own
+// sequence number — the only identifier the adapter holds before the platform assigns one — and
+// reports acceptance. The reason a record was rejected travels out of band on
+// sensor.ingestion.error.v1 (section 4.1.4), so it is deliberately not duplicated here.
+message IngestAck {
+  uint64 sensor_seq = 1;   // echoes DetectionRecord.sensor_seq
+  bool   accepted   = 2;   // false when rejected: validation, duplicate, or back-pressure drop
+}
+
+// Per-sensor health telemetry, published on sensor.health.v1 (section 4.1.4). Minimal by
+// design: which sensor, whether it is serving, and the platform clock at its last accepted
+// detection. Richer counters live in the sensordb ingestion_stats table and can be added here
+// compatibly (new field numbers) if a consumer later needs them on the event itself.
+message SensorHealth {
+  string sensor_id = 1;
+  Status status    = 2;
+  google.protobuf.Timestamp last_seen = 3;   // platform clock at last accepted detection
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    ONLINE             = 1;
+    DEGRADED           = 2;
+    OFFLINE            = 3;
+  }
+}

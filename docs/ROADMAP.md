@@ -205,8 +205,33 @@ disturb Redis switch the rate limiter off and revive a revoked token; §4.1 alre
 gateway's datastore, so an unreachable Redis is an unready gateway. Recorded here and in the
 gateway README because it is a real availability trade, not an obvious default.
 
-**M4 — Ingestion**
+**M4 — Ingestion** — 🚧 **In progress**
 Objective: heterogeneous sensor input → canonical `DetectionRecord` on Kafka. Services: `sensor-ingestion`, sensor simulator. Deliverables: REST + gRPC intake, per-modality normalisation, UTC + drift correction, dedup by `(sensorId, sensorSeq)`, health telemetry, dataset replay. Dependencies: M1. Expected output: replayed dataset traffic emerges on `sensor.detection.normalized.v1`. Testing: normalisation unit tests per modality; a dedup test; a Testcontainers Kafka round-trip; back-pressure drop-order test (§5.6).
+
+**M4.0 — Contracts & doc amendments** — ✅ **Complete** — no production code
+The architecture-review gate for M4. Applied the reviewed-and-approved decisions to the source of
+truth before any service code:
+- **Pipeline direction (Q1).** `sensor-ingestion` now *consumes* `sensor.detection.raw.v1` and
+  publishes `sensor.detection.normalized.v1`. §4.1.4 previously listed `raw` under *Publishes*
+  only; it now appears on both lines with a note — the intake adapters (REST/gRPC) publish `raw`,
+  a separate consumer normalises it. A sensor adapter, including the simulator, reaches `raw` only
+  through the intake APIs, never Kafka directly.
+- **Missing consumed topic (Q2).** Added `platform.config.sensor.updated.v1` to the §5.2 catalogue
+  and `create-topics.sh` (key `namespace`, ∞ retention, compact — mirroring `platform.config.updated.v1`).
+  Same just-in-time precedent as `platform.user.deactivated.v1` and the gateway topics; the sibling
+  `policy`/`ai` config sub-topics stay deferred to their consumers (M6–M8).
+- **gRPC + health contract (Q3, Q6).** New `contracts/proto/ingestion.proto`
+  (`pk.nust.cuas.ingestion.v1`): `DetectionIngestService.StreamDetections(stream DetectionRecord)
+  → stream IngestAck`, plus a minimal `SensorHealth`. `IngestAck` carries only `sensor_seq` +
+  `accepted`; rejection reasons travel on `sensor.ingestion.error.v1`. Documented as §5.3.1.
+  Service named `DetectionIngestService` (not `DetectionIngest`) to satisfy buf `SERVICE_SUFFIX`
+  without weakening the ruleset repo-wide.
+- **No RBAC change (Q8).** §7.4 untouched — sensors are not users; sensor authentication is an
+  infrastructure concern (mTLS / simulator mode).
+
+Verified: `buf lint` clean, `buf breaking` clean (additive — no topic version bump), `buf generate`
+regenerated Java/Python/TS bindings; `mvn clean verify` — 16 modules, **256 tests**, 0 failures.
+No `sensor-ingestion` code written; M4.1 awaits review.
 
 **M5 — Correlation**
 Objective: detections → tracks. Services: `track-correlation` (the stateful, sector-partitioned service — isolated deliberately). Deliverables: spatio-temporal association, Kalman state, lifecycle (tentative→confirmed→coasting→lost), CPA to assets, gRPC Infer call to orchestrator (circuit-broken). Dependencies: M4, and M6's contract (calls orchestrator). Expected output: `track.created/updated/lost` events from replayed detections. Testing: heavy domain unit tests on association and Kalman; a lifecycle-transition suite; integration test consuming real detection events.

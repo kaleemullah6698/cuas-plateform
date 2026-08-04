@@ -9,6 +9,7 @@ frontend. Single source of truth for every wire format in the system.
 |---|---|---|
 | `proto/detection.proto` | ARCHITECTURE.md section 5.3 | **Authored (M1).** The canonical `DetectionRecord`; every modality normalises into it. |
 | `proto/inference.proto` | ARCHITECTURE.md section 6.2 | **Authored (M1).** The `InferenceService` contract — the single boundary between Track A and Track B. |
+| `proto/ingestion.proto` | ARCHITECTURE.md sections 4.1.4, 5.3.1 | **Authored (M4.0).** The `DetectionIngestService` gRPC intake, `IngestAck`, and `SensorHealth`. `DetectionRecord` is the streamed payload. |
 | `proto/track.proto` | Section 4.1.5 | Deferred to M5 — event field schemas are defined when track-correlation defines them. |
 | `proto/alert.proto` | Section 4.1.8 | Deferred to M7 — same reason, with alert-service. |
 
@@ -39,3 +40,6 @@ in `generate-sources` and compiles `generated/java` into the shared contracts ja
 
 M1 complete. `detection.proto` and `inference.proto` authored and verified to
 generate, compile, import, and round-trip in Java, Python, and TypeScript.
+
+M4.0 adds `ingestion.proto` (`DetectionIngest`, `IngestAck`, `SensorHealth`), verified with
+`buf lint`, `buf breaking` (additive — no topic version bump), and `buf generate`.

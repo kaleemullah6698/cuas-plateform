@@ -992,8 +992,10 @@ Twelve services. Each owns its data, publishes its events, and is independently 
 | **Database** | `sensordb`: `sensors`, `sensor_health`, `ingestion_stats`; Redis-backed dedup window |
 | **APIs** | `POST /ingest/detections` (batch); gRPC `StreamDetections` (bidirectional); `POST /ingest/replay` (dev only, feature-flagged) |
 | **Publishes** | `sensor.detection.raw.v1`, `sensor.detection.normalized.v1`, `sensor.health.v1`, `sensor.ingestion.error.v1` |
-| **Consumes** | `platform.config.sensor.updated.v1` |
+| **Consumes** | `sensor.detection.raw.v1`, `platform.config.sensor.updated.v1` |
 | **Scaling** | Horizontal by Kafka partition; partition key `sensorId`, preserving per-sensor ordering |
+
+The raw topic appears on both lines by design. The intake adapters (REST `POST /ingest/detections`, gRPC `StreamDetections`) accept a sensor payload and publish it verbatim to `sensor.detection.raw.v1`; a separate consumer within the service reads that topic, normalises to the canonical `DetectionRecord`, and publishes `sensor.detection.normalized.v1`. Decoupling intake from normalisation through the raw topic is what lets ingestion absorb a burst without blocking a sensor (§5.6) and gives replay and audit a faithful record of what each sensor actually sent. A sensor adapter — including the development simulator — reaches the raw topic only through these intake APIs; it never writes to Kafka directly.
 
 ### 4.1.5 Track Correlation Service
 
@@ -1216,6 +1218,7 @@ flowchart LR
 | `alert.acknowledged.v1` | `alertId` | 3 | 90 d | delete | Alert | Audit, Reporting |
 | `incident.created.v1` | `incidentId` | 3 | ∞ | delete | Alert | Notification, Reporting, Audit |
 | `platform.config.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | All services |
+| `platform.config.sensor.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | Sensor Ingestion |
 | `platform.audit.v1` | `actorId` | 3 | ∞ | delete | All | Audit |
 | `platform.user.deactivated.v1` | `userId` | 3 | ∞ | delete | User & RBAC | Authentication |
 | `platform.gateway.access.v1` | `userId` | 3 | 7 d | delete | API Gateway | Reporting |
@@ -1328,6 +1331,46 @@ message GnssMeasurement {
 - **Large payloads are references, never inline.** I/Q recordings, range-Doppler maps, and camera frames go to object storage (MinIO); Kafka carries the URI. A 4 MB radar frame on a Kafka topic destroys throughput for every consumer on that topic.
 - **UUIDv7 identifiers.** Time-sortable, so they index well in PostgreSQL B-trees and sort naturally in Elasticsearch.
 - **`is_estimated` on position.** A derived position and a measured position must never be indistinguishable downstream.
+
+### 5.3.1 Ingestion service & health contract
+
+`DetectionRecord` is the payload; the ingestion service adds two service-specific messages and one RPC, defined in `contracts/proto/ingestion.proto` (package `pk.nust.cuas.ingestion.v1`). Section 4.1.4 names the `StreamDetections` RPC, `IngestAck`, and `SensorHealth` but does not define their bodies; they are completed here at the minimal shape each use dictates.
+
+```protobuf
+syntax = "proto3";
+package pk.nust.cuas.ingestion.v1;
+
+import "google/protobuf/timestamp.proto";
+import "detection.proto";
+
+// Bidirectional intake (§4.1.4). One IngestAck per streamed record, so back-pressure and
+// per-record rejection are visible to the adapter without tearing down the stream.
+service DetectionIngestService {
+  rpc StreamDetections(stream pk.nust.cuas.detection.v1.DetectionRecord)
+      returns (stream IngestAck);
+}
+
+// Minimal per-record acknowledgement. Correlates by the sensor's own sequence number; the
+// reason for a rejection travels out of band on sensor.ingestion.error.v1, not here.
+message IngestAck {
+  uint64 sensor_seq = 1;   // echoes DetectionRecord.sensor_seq
+  bool   accepted   = 2;   // false: validation, duplicate, or back-pressure drop
+}
+
+// Per-sensor health, published on sensor.health.v1 (§4.1.4). Minimal: identity, serving
+// status, and the platform clock at the last accepted detection. Richer counters live in the
+// sensordb ingestion_stats table and can be added here compatibly if a consumer needs them.
+message SensorHealth {
+  string sensor_id = 1;
+  Status status    = 2;
+  google.protobuf.Timestamp last_seen = 3;
+  enum Status { STATUS_UNSPECIFIED = 0; ONLINE = 1; DEGRADED = 2; OFFLINE = 3; }
+}
+```
+
+**Design decisions worth defending in review:**
+- **`IngestAck` carries no reject reason.** The bidirectional ack answers only *which* record and *whether* it was accepted; the *why* is an ingestion error, and `sensor.ingestion.error.v1` already carries it with full context. Duplicating it in the ack would be two sources for one fact.
+- **`SensorHealth` is deliberately thin.** Health is a liveness signal, not a metrics feed. Throughput and drop counters are operational telemetry and belong in `ingestion_stats`; the event stays small because `sensor.health.v1` fans out to the gateway, alerting, and reporting.
 
 ## 5.4 Serialization & Schema Registry
 

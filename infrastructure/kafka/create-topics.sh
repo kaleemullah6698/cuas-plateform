@@ -46,6 +46,7 @@ PRIMARY_TOPICS=(
   "alert.acknowledged.v1             3 ${R_90D} delete"
   "incident.created.v1               3 ${R_INF} delete"
   "platform.config.updated.v1        1 ${R_INF} compact"
+  "platform.config.sensor.updated.v1 1 ${R_INF} compact"
   "platform.audit.v1                 3 ${R_INF} delete"
   "platform.user.deactivated.v1      3 ${R_INF} delete"
   "platform.gateway.access.v1        3 ${R_7D}  delete"
