@@ -1,2 +1,19 @@
-# sensor-ingestion — test profile overrides
-# Placeholder.
+# Test profile — used by the Testcontainers integration tests, which supply the datasource,
+# Kafka, and Redis endpoints through @DynamicPropertySource.
+#
+# The gRPC server binds an ephemeral port so a cached test context never collides with another,
+# and health emission is pushed out of the way so the scheduler does not interleave with
+# assertions; the integration tests exercise health emission explicitly instead.
+
+grpc:
+  server:
+    port: 0
+
+ingestion:
+  health:
+    emit-interval: PT1H
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: INFO

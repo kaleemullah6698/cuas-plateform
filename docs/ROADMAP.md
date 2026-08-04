@@ -233,6 +233,36 @@ Verified: `buf lint` clean, `buf breaking` clean (additive — no topic version 
 regenerated Java/Python/TS bindings; `mvn clean verify` — 16 modules, **256 tests**, 0 failures.
 No `sensor-ingestion` code written; M4.1 awaits review.
 
+**M4.1 — Sensor Ingestion Service** — ✅ **Complete** — 41 tests
+The service itself, built Clean/hexagonal (§4.3) with a framework-free domain. Delivered: the REST
+batch intake (`POST /ingest/detections`, canonical `DetectionRecord` JSON, per-record rejection) and
+the bidirectional gRPC `StreamDetections` intake, both publishing verbatim to
+`sensor.detection.raw.v1`; a raw consumer that validates, de-duplicates (Redis window,
+`seenBefore`/`markSeen`), corrects the clock (per-sensor EWMA drift, `sensor_time` preserved),
+assigns a UUIDv7 identity and authoritative `ingest_time`, and publishes
+`sensor.detection.normalized.v1`; the `sensordb` schema (`sensors`, `sensor_health`,
+`ingestion_stats`) via Flyway; scheduled per-sensor health telemetry on `sensor.health.v1`;
+correlation-ID propagation across the raw hop; RFC-7807 errors and OpenAPI.
+
+**Decisions worth defending:** publish-then-mark de-duplication makes the pipeline at-least-once so a
+publish failure never loses a detection (§5.6), at the cost of a rare republish a mid-publish crash
+could cause, which track-correlation absorbs (§4.1.5); the intake carries no RBAC because sensors
+are not users (M8 decision), authentication being an infrastructure concern; the canonical schema is
+accepted directly rather than mirrored into a DTO tree, avoiding a second source of truth for §5.3.
+
+**Defect found and fixed:** the EWMA converges to one millisecond below the true offset because the
+estimate is rounded to whole milliseconds each step (a stable rounding fixed point); this was a
+wrong test expectation, corrected — the rounding is intended, drift being whole-millisecond.
+
+Verified: `mvn clean verify` — 16 modules, **297 tests** (+41), 0 failures; the 3 integration tests
+run the full pipeline against real PostgreSQL, Kafka, and Redis (Testcontainers).
+
+**Remaining M4 sub-milestones:** `POST /ingest/replay` (dev-only, feature-flagged) and the sensor
+simulator; the `platform.config.sensor.updated.v1` consumer (authoritative sensor registry, which
+currently is learned on first detection); the `sensor.ingestion.error.v1` publisher (needs a
+contract message); the §7.8 per-sensor rate limit at the gateway; and the §5.6 lowest-quality-first
+drop under producer-buffer pressure with a drop-order test.
+
 **M5 — Correlation**
 Objective: detections → tracks. Services: `track-correlation` (the stateful, sector-partitioned service — isolated deliberately). Deliverables: spatio-temporal association, Kalman state, lifecycle (tentative→confirmed→coasting→lost), CPA to assets, gRPC Infer call to orchestrator (circuit-broken). Dependencies: M4, and M6's contract (calls orchestrator). Expected output: `track.created/updated/lost` events from replayed detections. Testing: heavy domain unit tests on association and Kalman; a lifecycle-transition suite; integration test consuming real detection events.
 

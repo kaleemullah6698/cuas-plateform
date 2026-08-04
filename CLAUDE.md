@@ -156,11 +156,14 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M3 complete.** `mvn clean verify`: 16 modules, 256 tests, 0 failures. Infrastructure verified
-live (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone
-delivered and which defects it found.
+**M0–M3 complete; M4 in progress (M4.0 contracts + M4.1 service done).** `mvn clean verify`: 16
+modules, 297 tests, 0 failures. Infrastructure verified live (`scripts/verify-infra.sh`: 33 passed).
+See `docs/ROADMAP.md` for what each milestone delivered and which defects it found.
 
-Built: `contracts` (§5.3, §6.2, audit, user, gateway), `platform-commons`, `audit-service`,
-`user-service`, `auth-service`, `api-gateway`. The remaining nine services are still scaffold.
+Built: `contracts` (§5.3, §6.2, §5.3.1, audit, user, gateway, ingestion), `platform-commons`,
+`audit-service`, `user-service`, `auth-service`, `api-gateway`, `sensor-ingestion`. The remaining
+eight services are still scaffold.
 
-**Next: M4 — ingestion.** Frontend is deferred to M9; `npm ci` has never been run.
+**Next: remaining M4 sub-milestones** (replay + simulator, config consumer, error topic, per-sensor
+rate limit, §5.6 drop-order), then M5 — correlation. Frontend is deferred to M9; `npm ci` has never
+been run.

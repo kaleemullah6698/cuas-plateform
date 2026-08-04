@@ -1,23 +1,81 @@
-# sensor-ingestion — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# sensor-ingestion — ARCHITECTURE.md section 4.1.4
+#
+# Accepts sensor payloads (REST, gRPC), publishes them verbatim to sensor.detection.raw.v1,
+# consumes that topic, normalises each record to the canonical DetectionRecord, and publishes
+# sensor.detection.normalized.v1. Owns sensordb; uses Redis for the dedup window and drift state.
 
 spring:
   application:
     name: sensor-ingestion
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/sensordb
     username: ${POSTGRES_USER:cuas}
     password: ${POSTGRES_PASSWORD:}
+
   jpa:
     open-in-view: false
     hibernate:
+      # Flyway owns the schema; Hibernate validates against it and never alters it.
       ddl-auto: validate
-  flyway:
-    enabled: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      # Durable and duplicate-free at the producer: normalized detections feed the whole pipeline,
+      # and the intake ack blocks on this write. The raw intake stays non-blocking by not awaiting
+      # its own send, so acks=all does not slow a sensor down (section 5.6).
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: sensor-ingestion
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      auto-offset-reset: earliest
+      properties:
+        # Section 5.6 back-pressure: bound how much a single poll pulls, and allow long processing
+        # before the broker considers the consumer dead.
+        max.poll.records: 200
+        max.poll.interval.ms: 300000
+
+# Pipeline tunables (see IngestionProperties). Left at their defaults here; overridden per
+# environment as needed.
+ingestion:
+  dedup:
+    ttl: PT10M
+  drift:
+    alpha: 0.2
+    ttl: PT24H
+  health:
+    online-within: PT30S
+    degraded-within: PT2M
+    emit-interval: PT15S
+  batch:
+    max-size: 500
 
 server:
   port: 8083
+
+grpc:
+  server:
+    port: ${GRPC_PORT:9083}
 
 management:
   endpoints:

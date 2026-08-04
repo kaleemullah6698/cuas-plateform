@@ -58,6 +58,8 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | `buf lint` / `buf breaking` / `buf generate` (M4.0) | ✅ Executed | `ingestion.proto` added — lint clean, breaking clean (additive), Java/Python/TS regenerated |
 | `mvn clean verify` (M4.0 contracts) | ✅ Executed | 16 modules, **256 tests**, 0 failures — new `IngestAck`/`SensorHealth`/`DetectionIngestServiceGrpc` compile into the contracts jar |
 | `create-topics.sh` catalogue (M4.0) | 📋 Declared | Added `platform.config.sensor.updated.v1`; script now declares **28 topics (22 primary + 6 DLQ)**. Live creation deferred to the next infra bring-up (M4 runtime); topic auto-creation stays disabled by design |
+| `mvn clean verify` (M4.1 sensor-ingestion) | ✅ Executed | 16 modules, **297 tests** (+41), 0 failures — sensor-ingestion: 38 unit + 3 Testcontainers integration |
+| sensor-ingestion integration tests | ✅ Executed | 3 against real PostgreSQL 17 + Kafka (cp-kafka 7.8.0) + Redis 7.4 (Testcontainers) — a posted detection emerges normalised on `sensor.detection.normalized.v1` with UUIDv7 + `ingest_time` stamped and the `sensordb` rows written; a repeated `(sensorId, sensorSeq)` is normalised once and counted duplicate; an invalid detection is rejected at intake |
 | Testcontainers integration tests | ✅ Executed | 44 against real PostgreSQL 17 (audit, user, auth) — hash chain, DB-enforced immutability, concurrent append, self-escalation refusal, refresh-token reuse detection, fail-closed audit rollback. 46 against real Redis 7.4 (gateway) — token-bucket atomicity under concurrency, refill, fail-closed on an unreachable store, revocation propagation, the section 7.8 limits end to end |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
