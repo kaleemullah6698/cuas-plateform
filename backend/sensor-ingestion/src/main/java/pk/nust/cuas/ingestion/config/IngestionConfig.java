@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import pk.nust.cuas.ingestion.domain.policy.HealthStatusPolicy;
 import pk.nust.cuas.ingestion.domain.service.ClockDriftEstimator;
 import pk.nust.cuas.ingestion.domain.service.DetectionValidator;
-import pk.nust.cuas.ingestion.domain.service.Uuidv7Generator;
+import pk.nust.cuas.commons.id.Uuidv7Generator;
 
 /**
  * Wires the framework-free domain services as beans and enables the pieces the pipeline needs.

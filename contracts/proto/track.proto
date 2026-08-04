@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+// Track schema — ARCHITECTURE.md sections 4.1.5 and 5.3.2.
+//
+// The shape of a track as it is published on track.created.v1 and track.updated.v1. Both topics
+// carry the Track message directly; the topic name distinguishes birth from update. Section 4.1.5
+// names the track events but does not define their fields, so the minimum needed to represent a
+// track is defined here and ARCHITECTURE.md section 5.3.2 is amended to match.
+//
+// This is the M5.1 foundation: identity, sector, lifecycle status, and the latest observed state.
+// The Kalman-estimated velocity/acceleration, trajectory prediction, and CPA fields are added when
+// their behaviour is built (M5.2+); adding fields is backward-compatible (section 5.4).
+package pk.nust.cuas.track.v1;
+
+import "google/protobuf/timestamp.proto";
+import "detection.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.track.v1";
+option java_outer_classname = "TrackProto";
+
+// The lifecycle of a track (section 4.1.5: tentative → confirmed → coasting → lost). M5.1 emits
+// only TENTATIVE and CONFIRMED; COASTING and LOST are declared so the closed lifecycle is complete
+// and stable, but are reserved until the coasting/lost transitions are built (M5.2).
+enum TrackStatus {
+  TRACK_STATUS_UNSPECIFIED = 0;
+  TRACK_STATUS_TENTATIVE   = 1;
+  TRACK_STATUS_CONFIRMED   = 2;
+  TRACK_STATUS_COASTING    = 3;  // reserved for M5.2
+  TRACK_STATUS_LOST        = 4;  // reserved for M5.2
+}
+
+message Track {
+  string      track_id     = 1;   // UUIDv7 — time-sortable
+  string      sector_id    = 2;   // geographic sector the track belongs to (section 4.1.5)
+  TrackStatus status       = 3;
+
+  // Latest observed kinematic state. In M5.1 this is the position and velocity of the most recent
+  // associated detection; it becomes the Kalman-estimated state in M5.2.
+  pk.nust.cuas.detection.v1.GeoPosition position = 10;
+  double      speed_ms     = 11;
+  double      heading_deg  = 12;
+  google.protobuf.Timestamp observed_at = 13;  // ingest time of the latest associated detection
+
+  google.protobuf.Timestamp first_seen = 20;
+  google.protobuf.Timestamp last_seen  = 21;
+  uint32      detection_count   = 22;
+  string      last_detection_id = 23;
+
+  string      schema_version = 30;  // e.g. "1.0.0"
+  string      correlation_id = 31;  // end-to-end trace, carried from the triggering detection
+}

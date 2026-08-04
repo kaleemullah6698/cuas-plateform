@@ -1372,6 +1372,48 @@ message SensorHealth {
 - **`IngestAck` carries no reject reason.** The bidirectional ack answers only *which* record and *whether* it was accepted; the *why* is an ingestion error, and `sensor.ingestion.error.v1` already carries it with full context. Duplicating it in the ack would be two sources for one fact.
 - **`SensorHealth` is deliberately thin.** Health is a liveness signal, not a metrics feed. Throughput and drop counters are operational telemetry and belong in `ingestion_stats`; the event stays small because `sensor.health.v1` fans out to the gateway, alerting, and reporting.
 
+### 5.3.2 Track schema
+
+Section 4.1.5 names `track.created.v1` and `track.updated.v1` but does not define their fields. The track schema is defined in `contracts/proto/track.proto` (package `pk.nust.cuas.track.v1`) and documented here. Both topics carry the `Track` message directly; the topic name distinguishes birth from update.
+
+```protobuf
+syntax = "proto3";
+package pk.nust.cuas.track.v1;
+
+import "google/protobuf/timestamp.proto";
+import "detection.proto";
+
+// Lifecycle of §4.1.5: tentative → confirmed → coasting → lost.
+enum TrackStatus {
+  TRACK_STATUS_UNSPECIFIED = 0;
+  TRACK_STATUS_TENTATIVE   = 1;
+  TRACK_STATUS_CONFIRMED   = 2;
+  TRACK_STATUS_COASTING    = 3;  // reserved for M5.2
+  TRACK_STATUS_LOST        = 4;  // reserved for M5.2
+}
+
+message Track {
+  string      track_id     = 1;   // UUIDv7
+  string      sector_id    = 2;   // geographic sector (§4.1.5)
+  TrackStatus status       = 3;
+  pk.nust.cuas.detection.v1.GeoPosition position = 10;  // latest observed state
+  double      speed_ms     = 11;
+  double      heading_deg  = 12;
+  google.protobuf.Timestamp observed_at = 13;
+  google.protobuf.Timestamp first_seen = 20;
+  google.protobuf.Timestamp last_seen  = 21;
+  uint32      detection_count   = 22;
+  string      last_detection_id = 23;
+  string      schema_version = 30;
+  string      correlation_id = 31;
+}
+```
+
+**Design decisions worth defending in review:**
+- **The `Track` message is the latest observed state, not the full estimator state.** In the M5.1 foundation the position and velocity are those of the most recent associated detection; the Kalman-estimated state (with acceleration and covariance), trajectory prediction, and CPA are added in M5.2, as new fields — a backward-compatible change (§5.4).
+- **The lifecycle enum is declared whole but only partly emitted.** `COASTING` and `LOST` are reserved so the closed lifecycle vocabulary is fixed and stable from the start; M5.1 emits only `TENTATIVE` and `CONFIRMED` because it does not yet compute the coasting/lost transitions.
+- **Position reuses `detection.v1.GeoPosition`.** A track's position is the same canonical geodetic type a detection carries; a parallel track-specific position type would be a second source of truth for the same concept.
+
 ## 5.4 Serialization & Schema Registry
 
 **Protobuf over Avro.** Rationale: gRPC is already required for inter-service and AI-service calls, so Protobuf gives one IDL for both messaging and RPC; `protoc` generates Java, Python, and TypeScript from one source of truth; and compatibility rules are simpler to reason about under field-number discipline.

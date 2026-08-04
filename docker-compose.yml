@@ -237,6 +237,13 @@ services:
     build:
       context: .
       dockerfile: backend/track-correlation/Dockerfile
+    ports: ["8084:8084"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # JWKS for the track:read resource server; fetched lazily and cached.
+      AUTH_JWKS_URI: http://auth-service:8081/auth/jwks
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}

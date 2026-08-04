@@ -1,20 +1,64 @@
-# track-correlation — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# track-correlation — ARCHITECTURE.md section 4.1.5
+#
+# Consumes sensor.detection.normalized.v1, associates each detection into a track, and publishes
+# track.created.v1 / track.updated.v1. Owns trackdb. (Redis hot-state and the gRPC SubscribeTracks
+# stream are deferred to later M5 sub-milestones.)
 
 spring:
   application:
     name: track-correlation
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/trackdb
     username: ${POSTGRES_USER:cuas}
     password: ${POSTGRES_PASSWORD:}
+
   jpa:
     open-in-view: false
     hibernate:
+      # Flyway owns the schema; Hibernate validates against it and never alters it.
       ddl-auto: validate
-  flyway:
-    enabled: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: track-correlation
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      auto-offset-reset: earliest
+      properties:
+        max.poll.records: 200
+        max.poll.interval.ms: 300000
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
+
+# Association and lifecycle tunables (see CorrelationProperties). Left at their defaults here.
+correlation:
+  association:
+    distance-gate-m: 500
+    time-gate: PT30S
+  confirmation:
+    threshold: 3
+  sector:
+    cell-degrees: 1.0
 
 server:
   port: 8084

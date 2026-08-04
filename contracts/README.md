@@ -10,7 +10,7 @@ frontend. Single source of truth for every wire format in the system.
 | `proto/detection.proto` | ARCHITECTURE.md section 5.3 | **Authored (M1).** The canonical `DetectionRecord`; every modality normalises into it. |
 | `proto/inference.proto` | ARCHITECTURE.md section 6.2 | **Authored (M1).** The `InferenceService` contract — the single boundary between Track A and Track B. |
 | `proto/ingestion.proto` | ARCHITECTURE.md sections 4.1.4, 5.3.1 | **Authored (M4.0).** The `DetectionIngestService` gRPC intake, `IngestAck`, and `SensorHealth`. `DetectionRecord` is the streamed payload. |
-| `proto/track.proto` | Section 4.1.5 | Deferred to M5 — event field schemas are defined when track-correlation defines them. |
+| `proto/track.proto` | ARCHITECTURE.md sections 4.1.5, 5.3.2 | **Authored (M5.1).** The `Track` message and `TrackStatus` lifecycle carried on `track.created.v1` and `track.updated.v1`. Reuses `detection.v1.GeoPosition`. |
 | `proto/alert.proto` | Section 4.1.8 | Deferred to M7 — same reason, with alert-service. |
 
 ## Generating bindings

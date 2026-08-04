@@ -30,7 +30,7 @@ import pk.nust.cuas.ingestion.domain.port.DedupWindow;
 import pk.nust.cuas.ingestion.domain.port.SensorStateStore;
 import pk.nust.cuas.ingestion.domain.service.ClockDriftEstimator;
 import pk.nust.cuas.ingestion.domain.service.DetectionValidator;
-import pk.nust.cuas.ingestion.domain.service.Uuidv7Generator;
+import pk.nust.cuas.commons.id.Uuidv7Generator;
 import pk.nust.cuas.ingestion.support.Detections;
 
 @ExtendWith(MockitoExtension.class)

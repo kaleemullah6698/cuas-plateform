@@ -286,8 +286,38 @@ both are verified against the real wire contract.
 per-sensor limit, DLQ, §5.6 drop-order) are hardening that does not affect the normalised output and
 does not block M5.
 
-**M5 — Correlation**
+**M5 — Correlation** — 🚧 **In progress**
 Objective: detections → tracks. Services: `track-correlation` (the stateful, sector-partitioned service — isolated deliberately). Deliverables: spatio-temporal association, Kalman state, lifecycle (tentative→confirmed→coasting→lost), CPA to assets, gRPC Infer call to orchestrator (circuit-broken). Dependencies: M4, and M6's contract (calls orchestrator). Expected output: `track.created/updated/lost` events from replayed detections. Testing: heavy domain unit tests on association and Kalman; a lifecycle-transition suite; integration test consuming real detection events.
+
+**M5.1 — Track Correlation Foundation** — ✅ **Complete** — 31 tests
+The service, built Clean/hexagonal with a framework-free domain. Delivered: consume
+`sensor.detection.normalized.v1`; a spatio-temporal association pipeline (sector assignment →
+space-and-time gate → nearest-neighbour); track creation (tentative) and update, with confirmation
+on a detection-count threshold (tentative → confirmed); the `trackdb` schema (`tracks`,
+`track_states`, `track_detections`, `track_lifecycle_events`) with the full aggregate history
+persisted; `track.created.v1` / `track.updated.v1` publication; the `GET /tracks`, `/{id}`,
+`/{id}/history` read API guarded by `track:read`; correlation-ID propagation; RFC-7807; OpenAPI.
+
+**Contract added (§5.3.2):** `track.proto` (`Track`, `TrackStatus`) — §4.1.5 named the track events
+but never defined their fields. The minimum was defined and ARCHITECTURE.md §5.3.2 amended. The
+lifecycle enum declares `COASTING`/`LOST` as reserved (emitted in M5.2); position reuses
+`detection.v1.GeoPosition`. Topics were already catalogued in §5.2, so no §5.2 change.
+
+**Decisions worth defending:** the domain is proto-free (mapped at a boundary); the aggregate is
+immutable (associate returns a new `Track` plus its lifecycle event); the consumer runs
+single-threaded so a read-modify-write on a track is a plain transaction; correlation is idempotent
+(unique `(track_id, detection_id)` + a pre-check) so redelivery is safe; persist-before-publish
+in-transaction so a publish failure reprocesses rather than orphans a track. A shared `Uuidv7Generator`
+was promoted to `platform-commons` (both ingestion and tracks assign UUIDv7 ids) rather than
+duplicated.
+
+Verified: `mvn clean verify` — **17 modules, 352 tests** (+31), 0 failures; the integration tests run
+the full consume → associate → persist → publish pipeline and the secured read API against real
+PostgreSQL + Kafka (Testcontainers).
+
+**Deliberately deferred (later M5 sub-milestones):** Kalman state estimation, trajectory prediction,
+CPA, cross-sensor fusion, coasting/lost transitions, the AI-orchestrator gRPC call, the Redis
+hot-state cache and concurrent per-sector processing, and the gRPC `SubscribeTracks` stream.
 
 **M6 — AI boundary**
 Objective: the Track-A/Track-B decoupling, working with zero models. Services: `ai-orchestrator`, `mock-inference-provider`. Deliverables: modality routing, per-service timeout + Resilience4j breaker + bulkhead, content-hash cache, canary split, mock fallback publishing `ai.service.degraded.v1`; deterministic latency-realistic failure-injecting mock badged `0.0.0-mock`. Dependencies: M1. Expected output: `ai.inference.completed.v1` produced from mock; breaker opens and falls back under injected failure. Testing: the shared conformance suite (pytest) against the mock; breaker/bulkhead unit tests; a fallback integration test.

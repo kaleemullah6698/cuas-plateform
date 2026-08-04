@@ -1,4 +1,4 @@
-package pk.nust.cuas.ingestion.domain.service;
+package pk.nust.cuas.commons.id;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -29,7 +29,6 @@ class Uuidv7GeneratorTest {
 
         assertThat(timestampBits(first)).isEqualTo(earlier.toEpochMilli());
         assertThat(timestampBits(second)).isEqualTo(later.toEpochMilli());
-        // Time-sortable: the earlier instant produces the lexicographically-smaller identifier.
         assertThat(first.toString()).isLessThan(second.toString());
     }
 

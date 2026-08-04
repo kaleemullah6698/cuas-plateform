@@ -156,15 +156,15 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M4 complete.** `mvn clean verify`: 17 modules, 321 tests, 0 failures. Infrastructure verified
-live (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered
-and which defects it found.
+**M0–M4 complete; M5 in progress (M5.1 foundation done).** `mvn clean verify`: 17 modules, 352 tests,
+0 failures. Infrastructure verified live (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md`
+for what each milestone delivered and which defects it found.
 
-Built: `contracts` (§5.3, §6.2, §5.3.1, audit, user, gateway, ingestion), `platform-commons`,
-`audit-service`, `user-service`, `auth-service`, `api-gateway`, `sensor-ingestion`,
-`sensor-simulator`. The remaining seven services are still scaffold.
+Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingestion, track),
+`platform-commons`, `audit-service`, `user-service`, `auth-service`, `api-gateway`,
+`sensor-ingestion`, `sensor-simulator`, `track-correlation`. The remaining six services are still
+scaffold.
 
-**Next: M5 — correlation** (`track-correlation`, consumes `sensor.detection.normalized.v1`). M4's
-peripheral follow-ups (config-topic consumer, error-topic publisher, gateway per-sensor limit, DLQ,
-§5.6 drop-order) are hardening that does not block M5. Frontend is deferred to M9; `npm ci` has never
-been run.
+**Next: remaining M5 sub-milestones** (Kalman state, prediction, CPA, cross-sensor fusion,
+coasting/lost, the AI-orchestrator call, Redis hot-state, gRPC `SubscribeTracks`), then M6 — AI
+boundary. Frontend is deferred to M9; `npm ci` has never been run.
