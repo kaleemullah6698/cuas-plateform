@@ -156,7 +156,7 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M5 complete; M6 in progress (M6.1, M6.2 done).** `mvn clean verify`: 17 modules, 542 tests, 0 failures. Infrastructure verified live
+**M0–M5 complete; M6 in progress (M6.1–M6.3 done).** `mvn clean verify`: 17 modules, 554 tests, 0 failures. Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 

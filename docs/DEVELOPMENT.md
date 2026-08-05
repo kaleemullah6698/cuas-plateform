@@ -98,6 +98,7 @@ documentation assumes.
 | Model-agnosticism guard | ✅ Executed | `ModelAgnosticismTest` scans `ai-orchestrator` source for the section 6.3 service and framework names, comments included, and fails the build on any hit. **Caught a real violation on its first run** — a javadoc in `ServiceId` used a live service name as an illustration; the prose was reworded rather than the check weakened |
 | `mvn clean verify` (M6.2 mock provider) | ✅ Executed | **17 modules, 542 tests** (+52), 0 failures — ai-orchestrator: 84 |
 | Docker engine outage during M6.2 | ⚠️ Environment, not a defect | A reactor run failed in `api-gateway` with `Could not find a valid Docker environment` after Docker Desktop stopped mid-session. Restarted headlessly (see above); the re-run passed every Testcontainers suite unchanged |
+| `mvn clean verify` (M6.3 resilience) | ✅ Executed | ai-orchestrator: **96 tests** (+12) — breaker opens under injected/thrown transport failure, model errors never open it, bulkhead saturation degrades without opening the breaker, deadline enforced on a separate thread, listener failure cannot fail the inference, per-service isolation |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

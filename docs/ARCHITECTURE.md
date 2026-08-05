@@ -1218,6 +1218,7 @@ flowchart LR
 | `ai.inference.requested.v1` | `trackId` | 6 | 24 h | delete | Orchestrator | Reporting |
 | `ai.inference.completed.v1` | `trackId` | 6 | 7 d | delete | Orchestrator | Threat, Track Correlation, Audit |
 | `ai.inference.failed.v1` | `trackId` | 3 | 30 d | delete | Orchestrator | Alert, Reporting |
+| `ai.service.degraded.v1` | `serviceId` | 3 | 30 d | delete | Orchestrator | Alert, Gateway, Reporting, Audit |
 | `threat.assessed.v1` | `trackId` | 6 | 30 d | delete | Threat | Alert, Reporting, Audit |
 | `threat.level.changed.v1` | `trackId` | 6 | 90 d | delete | Threat | Alert, Notification, Gateway, Audit |
 | `alert.raised.v1` | `alertId` | 3 | 90 d | delete | Alert | Notification, Gateway, Audit, Reporting |

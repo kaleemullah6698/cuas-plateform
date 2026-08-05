@@ -42,6 +42,7 @@ PRIMARY_TOPICS=(
   "ai.inference.requested.v1         6 ${R_24H} delete"
   "ai.inference.completed.v1         6 ${R_7D}  delete"
   "ai.inference.failed.v1            3 ${R_30D} delete"
+  "ai.service.degraded.v1            3 ${R_30D} delete"
   "threat.assessed.v1                6 ${R_30D} delete"
   "threat.level.changed.v1           6 ${R_90D} delete"
   "alert.raised.v1                   3 ${R_90D} delete"

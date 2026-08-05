@@ -102,13 +102,45 @@ ai:
 See `ai-services/mock-inference-provider/README.md` for the scenario library and the reasoning
 behind determinism and the latency distribution.
 
+## Resilience
+
+Every call goes through `ResilientInferenceDispatcher`, which layers three protections **per
+service** and never lets a provider failure reach the caller. §5.6's governing principle applies: a
+drone scored late is a degraded outcome, a drone never scored is an undetected one — so **the track
+is never dropped, only degraded**.
+
+| Layer | Question it answers | On rejection |
+|---|---|---|
+| Bulkhead (`max-concurrent`, wait 0) | Is this service already at its concurrency limit? | `BULKHEAD_FULL` |
+| Circuit breaker (50% / 20 calls → open 30 s) | Has this service been failing? | `CIRCUIT_OPEN` |
+| Time limiter (`timeout`) | Did *this* call answer in budget? | `TIMEOUT` |
+
+Anything else transport-level becomes `TRANSPORT_ERROR`. All four fall back to the mock and notify
+the `DegradationListener` port (which M6.4 wires to `ai.service.degraded.v1`).
+
+**The breaker sits inside the bulkhead.** A bulkhead rejection means *busy*, not *broken*; counting
+it would let a traffic spike take a healthy service offline.
+
+**Only transport failures reach the breaker.** A model reporting `MODEL_ERROR`, `LOW_CONFIDENCE` or
+`INSUFFICIENT_DATA` has answered — that is its verdict, not evidence of unreachability — so those
+pass through and count as breaker *successes*. Otherwise the breaker would fire hardest exactly when
+the airspace is most ambiguous.
+
+**But a response that *reports* a transport failure is lifted into a thrown one.** The mock returns
+`STATUS_TIMEOUT` under injected failure rather than throwing, and a gRPC client may surface a
+server-side deadline the same way; without lifting, an injected timeout would count as a success and
+the breaker could never open.
+
+Breaker and bulkhead state are exported to Micrometer, so `/actuator/prometheus` shows open breakers
+and available permits per service.
+
 ## Status
 
-**M6.1 + M6.2 complete** — the registry, modality routing, the `InferenceProvider` port,
-startup-validated configuration, and the mock provider. A request can be routed to a set of
-descriptors and answered by the mock; nothing yet wires the two together end to end.
+**M6.1 + M6.2 + M6.3 complete** — the registry, modality routing, the `InferenceProvider` port,
+startup-validated configuration, the mock provider, and the resilience layer. A request can be
+routed, dispatched under timeout/breaker/bulkhead, and answered or degraded; nothing yet drives that
+from Kafka.
 
-Still to come: M6.3 resilience (timeout, breaker, bulkhead, `ai.service.degraded.v1`); M6.4 Kafka and
-the content-hash cache; M6.5 the gRPC provider, canary split and admin API; M6.6 the two M5 items
-deferred here — track-correlation's circuit-broken `Infer` call and the `ai.inference.completed.v1`
-consumer behind `track.classified.v1`.
+Still to come: M6.4 Kafka and the content-hash cache; M6.5 the gRPC provider, canary split and admin
+API; M6.6 the two M5 items deferred here — track-correlation's circuit-broken `Infer` call and the
+`ai.inference.completed.v1` consumer behind `track.classified.v1`.

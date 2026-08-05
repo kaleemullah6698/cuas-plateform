@@ -647,6 +647,53 @@ emitting the generated contract types.
 
 Verified: `mvn clean verify` — **17 modules, 542 tests** (+52), 0 failures.
 
+**M6.3 — Resilience** — ✅ **Complete** — 96 orchestrator tests (+12)
+§5.6 and §6.5's protections, per service. Delivered: `ResilientInferenceDispatcher` layering a
+bulkhead, a circuit breaker and a time limiter, falling back to the mock and announcing degradation
+through a `DegradationListener` port; breaker and bulkhead state exported to Micrometer.
+
+**Decisions worth defending:**
+- **The breaker sits *inside* the bulkhead.** A bulkhead rejection means the service is busy, not
+  broken, so it must not count towards opening a breaker — reversing the order would let a traffic
+  spike take a perfectly healthy service offline. There is a test for exactly that.
+- **Only transport failures reach the breaker.** `STATUS_MODEL_ERROR`, `STATUS_LOW_CONFIDENCE` and
+  `STATUS_INSUFFICIENT_DATA` are the *model's answer*, not evidence the service is unreachable; they
+  pass through and count as breaker successes. Counting them would take a healthy service out of
+  rotation for telling the truth, and would make the breaker fire hardest exactly when the airspace
+  is most ambiguous. 30 consecutive model errors leave the breaker closed.
+- **A response that *reports* a transport failure is lifted into a thrown one.** The mock reports an
+  injected timeout as `STATUS_TIMEOUT` rather than throwing, and a gRPC client may surface a
+  server-side deadline the same way. Without lifting it, an injected timeout would be recorded as a
+  breaker *success* and the breaker could never open under injected failure — which is precisely
+  M6's stated expected output.
+- **Registries, not `@CircuitBreaker` annotations.** The annotation needs a name at compile time, and
+  §6.1's whole point is that service names live only in configuration. Resolving instances by id at
+  call time is what keeps a new model a config entry.
+- **The deadline runs on a separate (virtual) thread.** A time limit that only fires when the callee
+  cooperates is not a time limit. Virtual threads because the orchestrator is IO-bound by design; a
+  fixed pool would impose a second, invisible concurrency cap behind the bulkheads that are supposed
+  to be the only one.
+- **Bulkhead wait is zero.** A saturated service degrades immediately rather than adding queueing
+  latency to a request already against a deadline (§5.6).
+- **A listener that throws cannot fail the inference it describes** — that would turn a handled
+  outage into an unhandled one, the exact opposite of the port's purpose.
+- **`InferenceAttempt` is separate from `InferenceOutcome`.** One says how the *model* did, the other
+  which *path* answered. Collapsing them would make a fallback indistinguishable from a real result
+  at the moment an operator most needs to know the difference (§6.5).
+- **`DegradationReason` distinguishes open-breaker, full-bulkhead and timeout.** The remedies differ —
+  wait, scale, or investigate — so a single "degraded" would discard the only signal separating them.
+
+**Defect found: `ai.service.degraded.v1` was never catalogued.** It is listed under §4.1.6's
+*Publishes*, appears in §6.5's sequence diagram, and §7.6 requires the SIEM to forward it — but it was
+absent from the §5.2 topic catalogue and from `create-topics.sh`. With topic auto-creation disabled
+by design, publishing to it would have failed at runtime. Added to both (key `serviceId`, 3
+partitions, 30 d, delete — matching `ai.inference.failed.v1`, its nearest sibling in criticality).
+**This is the third topic of the same family**, after `track.merged.v1` and `track.classified.v1` at
+M5.3: a topic named in a service's *Publishes* line but missing from §5.2. A full sweep of every
+remaining service's declarations against the catalogue is scheduled before M6 closes.
+
+Verified: `mvn clean verify` — **17 modules, 554 tests** (+12), 0 failures.
+
 **M7 — Assessment & alerting**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.
 
