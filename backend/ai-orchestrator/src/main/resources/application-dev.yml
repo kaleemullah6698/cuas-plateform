@@ -1,2 +1,32 @@
 # ai-orchestrator — dev profile overrides
-# Placeholder.
+#
+# A worked registry: the four services ARCHITECTURE.md section 6.3 specifies, all on the mock
+# provider. This is what a developer or a demonstration runs, and it is exactly the shape a
+# production registry takes — the only difference when a trained model ships is `mode: grpc` plus an
+# `endpoint` on the service it belongs to.
+#
+# The ids are data, not identifiers the code knows. Rename them, delete them, or add others (radar
+# fusion, GNSS, signal intelligence, any future research model) and the orchestrator behaves
+# identically: routing follows the declared modalities, and nothing in Track A changes.
+ai:
+  services:
+    rf-classifier:
+      modalities: [RF]
+      mode: mock
+      timeout: PT0.1S          # section 6.3.1 p95 budget 60 ms, with headroom
+      max-concurrent: 32
+    vision-detector:
+      modalities: [EO_IR]
+      mode: mock
+      timeout: PT0.4S          # section 6.3.2: 250 ms, the pipeline's dominant term
+      max-concurrent: 32
+    radar-rf-fusion:
+      modalities: [RADAR, RF]  # multi-modal: routed for either, invoked once per request
+      mode: mock
+      timeout: PT0.2S          # section 6.3.3: 120 ms
+      max-concurrent: 32
+    threat-scorer:
+      modalities: [EXTERNAL]
+      mode: mock
+      timeout: PT0.08S         # section 6.3.4: 40 ms
+      max-concurrent: 32

@@ -94,12 +94,6 @@ public class ResilienceConfig {
         return Executors.newVirtualThreadPerTaskExecutor();
     }
 
-    /** Until M6.4 publishes {@code ai.service.degraded.v1}, degradation is logged and metered only. */
-    @Bean
-    public DegradationListener degradationListener() {
-        return DegradationListener.noop();
-    }
-
     @Bean
     public ResilientInferenceDispatcher resilientInferenceDispatcher(
             CircuitBreakerRegistry breakers, BulkheadRegistry bulkheads,

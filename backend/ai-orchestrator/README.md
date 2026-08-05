@@ -27,6 +27,11 @@ on it. It caught a violation on its first run (a javadoc example), which is the 
 
 ## Registering a service
 
+The default profile registers **nothing** — `services: {}`. A default that shipped example services
+would register them in every deployment including production, which is the configuration-level
+version of mistaking a mock for a real model. `application-dev.yml` carries a worked example of all
+four §6.3 services; a deployment states its own.
+
 ```yaml
 ai:
   services:
@@ -134,13 +139,43 @@ the breaker could never open.
 Breaker and bulkhead state are exported to Micrometer, so `/actuator/prometheus` shows open breakers
 and available permits per service.
 
+## Events and caching
+
+One request fans out to every service its modalities route to. For each: check the cache, dispatch
+under the resilience layer, publish the outcome.
+
+| Topic | Key | When |
+|---|---|---|
+| `ai.inference.requested.v1` | `trackId` | A call was dispatched — **not** on a cache hit |
+| `ai.inference.completed.v1` | `trackId` | A usable result (OK, low-confidence, degraded) |
+| `ai.inference.failed.v1` | `trackId` | No usable result (model error, insufficient data, timeout) |
+| `ai.service.degraded.v1` | `serviceId` | A fallback answered; emitted **alongside** completed |
+
+A cache hit deliberately skips `requested`: that topic measures how much inference the system
+actually asks for, and counting an answer that never reached a provider would hide the cache's value
+in the one metric that should show it.
+
+**The cache is content-addressed** (§4.1.6, TTL 60 s) — a SHA-256 over the detection fingerprints
+plus the options that change what the question means. Keying by `trackId` would be the obvious
+shortcut and wrong: a track is a thing that *changes*, so its second inference is usually a different
+question, and answering it from the first would freeze a moving drone's classification. A pinned
+model version is part of the key, or a canary would be served the incumbent's cached answer.
+
+**Degraded results are never cached** — a fallback describes the service's health at one moment, not
+the input; caching it would keep serving a mock answer for a full TTL after recovery.
+
+**Publication never fails an inference.** Sends are logged-and-dropped on failure, the opposite of
+track-correlation's synchronous publish. There, a lost event means a track nothing downstream knows
+about; here the caller already holds its answer, and failing it because telemetry could not be
+written would convert a successful inference into a failed one.
+
 ## Status
 
-**M6.1 + M6.2 + M6.3 complete** — the registry, modality routing, the `InferenceProvider` port,
+**M6.1 + M6.2 + M6.3 + M6.4 complete** — the registry, modality routing, the `InferenceProvider` port,
 startup-validated configuration, the mock provider, and the resilience layer. A request can be
-routed, dispatched under timeout/breaker/bulkhead, and answered or degraded; nothing yet drives that
-from Kafka.
+routed, dispatched under timeout/breaker/bulkhead, cached, answered or degraded, and published on all
+four topics.
 
-Still to come: M6.4 Kafka and the content-hash cache; M6.5 the gRPC provider, canary split and admin
-API; M6.6 the two M5 items deferred here — track-correlation's circuit-broken `Infer` call and the
-`ai.inference.completed.v1` consumer behind `track.classified.v1`.
+Still to come: M6.5 the gRPC provider, canary split and admin API; M6.6 the two M5 items deferred
+here — track-correlation's circuit-broken `Infer` call and the `ai.inference.completed.v1` consumer
+behind `track.classified.v1`.

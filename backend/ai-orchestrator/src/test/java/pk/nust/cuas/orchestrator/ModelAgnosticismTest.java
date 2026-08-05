@@ -68,11 +68,29 @@ class ModelAgnosticismTest {
     }
 
     @Test
-    void theRegistryIsConfiguredByDataNotByCode() throws IOException {
-        // The corollary: the service ids do live somewhere, and that somewhere is configuration.
-        String config = Files.readString(
-                Path.of("src/main/resources/application.yml"), StandardCharsets.UTF_8);
+    void theDefaultProfileRegistersNoServices() {
+        // A default profile that shipped example services would register them in every deployment,
+        // including production — four mock-backed services nobody asked for, which is the
+        // config-level version of mistaking a mock for a real model. The registry is a deployment's
+        // own statement of what it runs.
+        assertThat(readConfig("application.yml"))
+                .contains("services: {}")
+                .doesNotContain("mode: mock");
+    }
 
-        assertThat(config).contains("ai:").contains("services:").contains("modalities:");
+    @Test
+    void theRegistryIsConfiguredByDataNotByCode() {
+        // The corollary: the service ids do live somewhere, and that somewhere is configuration —
+        // here the dev profile's worked example, which is the same shape a production registry takes.
+        assertThat(readConfig("application-dev.yml"))
+                .contains("ai:").contains("services:").contains("modalities:").contains("mode: mock");
+    }
+
+    private static String readConfig(String name) {
+        try {
+            return Files.readString(Path.of("src/main/resources", name), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            throw new IllegalStateException("could not read " + name, ex);
+        }
     }
 }

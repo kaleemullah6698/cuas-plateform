@@ -689,10 +689,91 @@ absent from the §5.2 topic catalogue and from `create-topics.sh`. With topic au
 by design, publishing to it would have failed at runtime. Added to both (key `serviceId`, 3
 partitions, 30 d, delete — matching `ai.inference.failed.v1`, its nearest sibling in criticality).
 **This is the third topic of the same family**, after `track.merged.v1` and `track.classified.v1` at
-M5.3: a topic named in a service's *Publishes* line but missing from §5.2. A full sweep of every
-remaining service's declarations against the catalogue is scheduled before M6 closes.
+M5.3: a topic named in a service's *Publishes* line but missing from §5.2.
+
+**Sweep performed — the gap is systematic, and now measured.** Cross-checking every §4.1 *Publishes*
+and *Consumes* line against the §5.2 catalogue and `create-topics.sh`: the catalogue holds **25
+topics**, all 25 are created, and none is created that is not catalogued — but the service inventory
+names roughly **40 distinct topics**. The uncatalogued remainder, by owner:
+
+| Owner | Uncatalogued topics |
+|---|---|
+| `auth-service` | `platform.auth.login.success/.failed/.logout/.token.revoked/.lockout.v1` |
+| `user-service` | `platform.user.created/.updated.v1`, `platform.role.assigned/.permissions.changed.v1` |
+| `audit-service` | `audit.chain.verified/.broken.v1` |
+| `sensor-ingestion` | `sensor.health.degraded/.offline.v1` |
+| `threat-assessment` (M7) | `threat.recommendation.generated.v1` |
+| `alert-service` (M7) | `alert.escalated/.resolved.v1`, `incident.updated/.closed.v1` |
+| `notification-service` (M7) | `notification.sent/.failed.v1` |
+| `reporting-service` (M8) | `report.generation.started/.generated/.generation.failed.v1` |
+| `config-service` (M8) | `platform.config.policy/.ai.updated.v1` |
+
+**No current runtime defect.** Every topic the built services actually publish to —
+`platform.audit.v1`, `platform.gateway.access/.ratelimit.v1`, `platform.user.deactivated.v1`,
+`sensor.detection.raw/.normalized.v1`, `sensor.health.v1`, `track.created/.updated/.lost/.merged.v1` —
+is catalogued and created. The uncatalogued entries are publications not yet implemented in built
+services, or belong to services that do not exist until M7/M8.
+
+**Deliberately not fixed here.** Cataloguing them requires choosing a key, partition count, retention
+and cleanup policy for each, which is specification the owning milestone must make with knowledge of
+its consumers — inventing 20 rows now would be exactly the "do not invent" failure CLAUDE.md §0
+guards against. Each is added by its owning milestone, as M4.0, M5.3 and M6.3 each did. The value of
+this sweep is that the remaining work is now enumerated rather than discovered one outage at a time.
 
 Verified: `mvn clean verify` — **17 modules, 554 tests** (+12), 0 failures.
+
+**M6.4 — Kafka events & content-addressed cache** — ✅ **Complete** — 135 orchestrator tests (+39)
+The pipeline half. Delivered: `InferenceOrchestrator` (route → cache → dispatch → publish),
+`ProviderSelector`, the Redis inference cache behind an `InferenceCache` port, and
+`InferenceEventKafkaPublisher` producing all four §5.2 topics.
+
+**Decisions worth defending:**
+- **The cache is content-addressed, not track-addressed.** Keying by `trackId` is the obvious
+  shortcut and is wrong in the direction that matters: a track is a thing that *changes*, so its
+  second inference is usually a different question, and answering it from the first would freeze a
+  moving drone's classification at whatever it was when first seen. The key is a SHA-256 over the
+  detection fingerprints and the options that change what the question means.
+- **Request and correlation ids are excluded from the key.** They differ on every call by
+  construction; including them would make every key unique and the cache would never hit.
+- **SHA-256, not a fast non-cryptographic hash.** A collision here does not merely waste work — it
+  returns *one track's classification for another's detections*. That is a wrong answer about the
+  airspace, and worth microseconds to make infeasible. Fingerprints are length-prefixed so
+  `["ab","c"]` and `["a","bc"]` cannot collide.
+- **A pinned model version is part of the key.** A canary asks a *different model* the same question;
+  sharing a key would serve the incumbent's answer and make the canary invisible.
+- **A cache hit does not emit `ai.inference.requested.v1`.** That topic measures how much inference
+  the system actually asks for; counting an answer that never reached a provider would overstate
+  demand and hide the cache's value in the one metric that should show it.
+- **Degraded results are never cached.** A fallback answer describes the *service's* health at one
+  moment, not the input; caching it would keep serving a mock answer for a full TTL after the real
+  service recovered.
+- **Failures go to `ai.inference.failed.v1`, never `completed`**, so a consumer never has to
+  distinguish "scored zero" from "not scored". A degraded call emits **both** `completed` and
+  `degraded`: downstream gets a usable result, the operator gets the caveat.
+- **Inference topics are keyed by `trackId`, degraded by `serviceId`.** One track's events must stay
+  ordered on one partition; a degradation is a statement about a *service* over time.
+- **Publication never fails the inference** — the opposite of track-correlation's synchronous
+  publish, and deliberately so. There, a lost track event means a track nothing downstream knows
+  about. Here the caller already holds its answer; failing the call because telemetry could not be
+  written would convert a successful inference into a failed one.
+- **`ProviderSelector` keys by mode, not by service id**, so fifty registered services still resolve
+  to two provider implementations. A map keyed by id would grow with every model and need editing to
+  add one — the code change §6.1 forbids. Completeness is validated at startup against the
+  *configured* services, so a mock-only deployment needs no gRPC client present.
+
+**Defect found: the default profile shipped four example services.** `application.yml` registered
+the four §6.3 services with `mode: mock`. Every deployment inheriting them — production included —
+is the configuration-level version of mistaking a mock for a real model. Moved to
+`application-dev.yml` as a worked example; the default registry is now `services: {}`, and
+`ModelAgnosticismTest` asserts it stays that way. Found because a test's `@TestPropertySource`
+*added* to the map rather than replacing it, and the shipped services turned up in the results.
+
+**Defect found: the orchestrator used `spring-boot-starter`, not `-web`.** `platform-commons`'
+`CorrelationIdFilter` needs the servlet API, so every Spring context failed with
+`NoClassDefFoundError: jakarta/servlet/Filter`. §4.1.6 gives this service three REST surfaces
+anyway, so `-web` is the correct dependency rather than a workaround.
+
+Verified: `mvn clean verify` — **17 modules, 583 tests** (+29), 0 failures.
 
 **M7 — Assessment & alerting**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.

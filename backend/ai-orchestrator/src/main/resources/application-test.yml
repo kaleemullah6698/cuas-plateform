@@ -1,2 +1,17 @@
-# ai-orchestrator — test profile overrides
-# Placeholder.
+# ai-orchestrator — test profile overrides.
+#
+# Integration tests supply Kafka through @DynamicPropertySource. Redis is not containerised for the
+# orchestrator suite: the inference cache is optional by design — a permanent miss is correct
+# behaviour — so the tests run against the no-op store and exercise the provider path every time.
+# RedisInferenceCache has its own Testcontainers test.
+ai:
+  cache:
+    enabled: false
+  mock:
+    # Assert on content, not elapsed time; the resilience tests enable latency where they need it.
+    simulate-latency: false
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: INFO
