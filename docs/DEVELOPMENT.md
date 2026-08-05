@@ -29,6 +29,21 @@ administrator elevation, license acceptance, and usually a reboot. Install it on
 Once Docker is running, `bash scripts/verify-infra.sh` performs the entire infrastructure
 acceptance test end-to-end (see [Full system with Docker](#full-system-with-docker)).
 
+### Restarting a stopped engine, without the GUI
+
+Docker Desktop can stop between builds (resource pressure, a host sleep, or simply being closed).
+Every Testcontainers test then fails with `Could not find a valid Docker environment` — a red reactor
+that is **not** a code defect. Installation needs the GUI, but a restart does not:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin\docker.exe" desktop start
+```
+
+Then poll `docker info` until it answers before re-running the build; the engine is usually ready in
+under ten seconds but the CLI returns before it is. Note the executable is under
+`%LOCALAPPDATA%\Programs\DockerDesktop` on this machine, not the `C:\Program Files\Docker` path most
+documentation assumes.
+
 ---
 
 ## Verification status
@@ -81,6 +96,8 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | `buf lint` / `buf breaking` / `buf generate` (M5.7) | ✅ Executed | `TrackService.SubscribeTracks` + `TrackEvent` added — lint clean, **breaking clean** (additive); Java/Python/TS regenerated |
 | `mvn clean verify` (M6.1 orchestrator foundation) | ✅ Executed | **17 modules, 490 tests** (+42), 0 failures — ai-orchestrator: 30 tests (registry, modality routing, descriptor validation, boundary mapper, config binding, model-agnosticism guard) |
 | Model-agnosticism guard | ✅ Executed | `ModelAgnosticismTest` scans `ai-orchestrator` source for the section 6.3 service and framework names, comments included, and fails the build on any hit. **Caught a real violation on its first run** — a javadoc in `ServiceId` used a live service name as an illustration; the prose was reworded rather than the check weakened |
+| `mvn clean verify` (M6.2 mock provider) | ✅ Executed | **17 modules, 542 tests** (+52), 0 failures — ai-orchestrator: 84 |
+| Docker engine outage during M6.2 | ⚠️ Environment, not a defect | A reactor run failed in `api-gateway` with `Could not find a valid Docker environment` after Docker Desktop stopped mid-session. Restarted headlessly (see above); the re-run passed every Testcontainers suite unchanged |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

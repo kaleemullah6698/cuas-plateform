@@ -609,6 +609,44 @@ real service name as an illustration. Reworded rather than the check weakened.
 
 Verified: `mvn clean verify` — **17 modules, 490 tests** (+42), 0 failures.
 
+**M6.2 — Mock inference provider** — ✅ **Complete** — 84 orchestrator tests (+42)
+§6.4's mock, built as the first-class component it is specified to be. Delivered: `ScenarioLibrary`
+(six scenarios, deterministically assigned), `LatencyModel` (lognormal fitted to each service's p95),
+`FailureInjector` (timeout / model-error / low-confidence rates), and `MockInferenceProvider`
+emitting the generated contract types.
+
+**Decisions worth defending:**
+- **It lives in-process, inside the orchestrator, not as a container.** §6.4 specifies it as a Java
+  component behind the port, and that is load-bearing: the mock is the fallback an *open circuit
+  breaker* falls onto (§6.5), so it must be reachable when the network is exactly what has failed. A
+  mock served over the same gRPC transport as the real services could be down for the same reason
+  they are.
+- **Its bean is unconditional — no `@ConditionalOnProperty`.** It is not a development mode a
+  production profile switches off; a profile that could remove it would remove the platform's ability
+  to degrade instead of fail.
+- **Deterministic, never random.** Every decision derives from a 64-bit FNV-1a seed over track and
+  service id. `String.hashCode` was rejected deliberately: track ids are UUIDv7 and share a long
+  common prefix, so a weak 32-bit hash clusters consecutive tracks into one scenario and defeats the
+  library. A `java.util.Random` would make every injected failure unreproducible — the difference
+  between a demonstrable defect and one that "happens sometimes".
+- **Lognormal latency, fitted so p95 lands on the configured budget** (`mu = ln(p95) − 1.645·sigma`).
+  Real inference latency is clustered near a median with a long right tail; a constant would make
+  every p95 dashboard, timeout and budget assertion meaningless, and would make the system look
+  better-behaved under mock than it will ever be under a real model. The fit also means a timeout is
+  hit *occasionally but not usually* — the condition a breaker needs to be exercised against.
+- **Injection rates are drawn from disjoint bands of one value**, so they compose exactly:
+  10%+10%+10% is 30% failure, not the 27% independent draws would give.
+- **A pinned version is appended, never substituted** — `0.0.0-mock+pinned-1.3.0`. A canary pin must
+  not let a mock claim to be a real version.
+- **It is always healthy.** A fallback that could itself be unavailable is not a fallback.
+- **It serves every registered service and knows none of them**; the descriptor arrives as a
+  parameter. A mock that varied by service would have to know what each service models.
+- **An injected timeout is returned as a *status*, not thrown.** Providers throw only on transport
+  failure; the resilience layer classifies the status. Conflating them would open a breaker because a
+  model honestly reported low confidence.
+
+Verified: `mvn clean verify` — **17 modules, 542 tests** (+52), 0 failures.
+
 **M7 — Assessment & alerting**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.
 

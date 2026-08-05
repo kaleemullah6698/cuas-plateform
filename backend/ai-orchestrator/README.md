@@ -86,13 +86,29 @@ Providers signal an *inference* failure through the response `status`
 *transport* failure. The circuit breaker measures the latter; conflating them would open a breaker
 because a model honestly reported low confidence.
 
+## Mock configuration
+
+```yaml
+ai:
+  mock:
+    simulate-latency: true    # actually sleep for the sampled time
+    latency-sigma: 0.35       # lognormal shape; median lands near 60% of p95
+    failure:
+      timeout-rate: 0.0       # the transport failure a breaker counts
+      model-error-rate: 0.0   # a model's answer, not a transport failure
+      low-confidence-rate: 0.0
+```
+
+See `ai-services/mock-inference-provider/README.md` for the scenario library and the reasoning
+behind determinism and the latency distribution.
+
 ## Status
 
-**M6.1 complete** — the registry, modality routing, the `InferenceProvider` port, and
-startup-validated configuration. No provider implementations yet, so a request routes to a set of
-descriptors and stops there; the service starts and logs its registry.
+**M6.1 + M6.2 complete** — the registry, modality routing, the `InferenceProvider` port,
+startup-validated configuration, and the mock provider. A request can be routed to a set of
+descriptors and answered by the mock; nothing yet wires the two together end to end.
 
-Still to come: M6.2 the mock provider; M6.3 resilience (timeout, breaker, bulkhead,
-`ai.service.degraded.v1`); M6.4 Kafka and the content-hash cache; M6.5 the gRPC provider, canary
-split and admin API; M6.6 the two M5 items deferred here — track-correlation's circuit-broken `Infer`
-call and the `ai.inference.completed.v1` consumer behind `track.classified.v1`.
+Still to come: M6.3 resilience (timeout, breaker, bulkhead, `ai.service.degraded.v1`); M6.4 Kafka and
+the content-hash cache; M6.5 the gRPC provider, canary split and admin API; M6.6 the two M5 items
+deferred here — track-correlation's circuit-broken `Infer` call and the `ai.inference.completed.v1`
+consumer behind `track.classified.v1`.
