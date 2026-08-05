@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param kalman      the Kalman filter tuning
  * @param lifecycle   the miss-timeout lifecycle
  * @param prediction  the trajectory-prediction horizon
+ * @param merge       the cross-sensor merge rule
  * @param assets      the protected assets CPA is measured against
  */
 @ConfigurationProperties(prefix = "correlation")
@@ -25,6 +26,7 @@ public record CorrelationProperties(
         @DefaultValue Kalman kalman,
         @DefaultValue Lifecycle lifecycle,
         @DefaultValue Prediction prediction,
+        @DefaultValue Merge merge,
         @DefaultValue List<Asset> assets) {
 
     /**
@@ -75,6 +77,17 @@ public record CorrelationProperties(
     public record Prediction(
             @DefaultValue("PT30S") Duration horizon,
             @DefaultValue("PT5S") Duration step) {
+    }
+
+    /**
+     * @param gateM                     how close two tracks' estimates must be to be merge candidates
+     * @param requiredConsecutiveSweeps how many sweeps in a row they must stay that close
+     * @param checkInterval             how often the merge sweep runs — the unit the sweeps are counted in
+     */
+    public record Merge(
+            @DefaultValue("150") double gateM,
+            @DefaultValue("3") int requiredConsecutiveSweeps,
+            @DefaultValue("PT5S") Duration checkInterval) {
     }
 
     /**

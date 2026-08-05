@@ -20,6 +20,7 @@ import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
 import pk.nust.cuas.track.domain.model.TrackState;
 import pk.nust.cuas.track.domain.model.TrackStatus;
+import pk.nust.cuas.track.domain.port.HotTrackStateStore;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.AssociationPolicy;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
@@ -48,6 +49,7 @@ public class DetectionCorrelationService {
     private static final Logger log = LoggerFactory.getLogger(DetectionCorrelationService.class);
 
     private final TrackRepository tracks;
+    private final HotTrackStateStore hotState;
     private final SectorPolicy sectorPolicy;
     private final AssociationPolicy associationPolicy;
     private final TrackConfirmationPolicy confirmationPolicy;
@@ -59,6 +61,7 @@ public class DetectionCorrelationService {
     private final Duration candidateWindow;
 
     public DetectionCorrelationService(TrackRepository tracks,
+                                       HotTrackStateStore hotState,
                                        SectorPolicy sectorPolicy,
                                        AssociationPolicy associationPolicy,
                                        TrackConfirmationPolicy confirmationPolicy,
@@ -69,6 +72,7 @@ public class DetectionCorrelationService {
                                        Uuidv7Generator idGenerator,
                                        Clock clock) {
         this.tracks = tracks;
+        this.hotState = hotState;
         this.sectorPolicy = sectorPolicy;
         this.associationPolicy = associationPolicy;
         this.confirmationPolicy = confirmationPolicy;
@@ -113,7 +117,7 @@ public class DetectionCorrelationService {
 
     private List<AssociationPolicy.Candidate> candidates(SectorId sector, Instant observedAt) {
         Instant notBefore = observedAt.minus(candidateWindow);
-        return tracks.findOpenInSector(sector, notBefore).stream()
+        return openInSector(sector, notBefore).stream()
                 .map(track -> {
                     // From the filter's validity time, not the last detection: a coasting track's
                     // filter is already predicted forward, and re-measuring from lastDetectionAt
@@ -122,6 +126,32 @@ public class DetectionCorrelationService {
                     return new AssociationPolicy.Candidate(track, kalman.position(kalman.predict(track.filter(), dt)));
                 })
                 .toList();
+    }
+
+    /**
+     * The open tracks in a sector, from the hot state when it has them and from the database
+     * otherwise (section 4.1.5).
+     *
+     * <p>The cache holds a sector's open tracks without the {@code notBefore} bound the database
+     * query applies, so the window is re-applied here. Filtering after the read rather than caching
+     * per-window entries keeps one entry per sector: the window moves with every detection, and a
+     * window-keyed cache would miss on almost every one.
+     *
+     * <p>A miss seeds the cache from what the database returned. That is the only place the cache is
+     * populated in bulk; every subsequent change arrives through the write-through on
+     * {@link #extend} and {@link #open}.
+     */
+    private List<Track> openInSector(SectorId sector, Instant notBefore) {
+        Optional<List<Track>> cached = hotState.openInSector(sector);
+        if (cached.isPresent()) {
+            return cached.get().stream()
+                    .filter(track -> track.status().isOpen())
+                    .filter(track -> !track.lastDetectionAt().isBefore(notBefore))
+                    .toList();
+        }
+        List<Track> fromDatabase = tracks.findOpenInSector(sector, notBefore);
+        hotState.seed(sector, fromDatabase);
+        return fromDatabase;
     }
 
     private void extend(AssociationPolicy.Match match, IncomingDetection incoming) {
@@ -133,6 +163,7 @@ public class DetectionCorrelationService {
                 state.detectionId(), state.sensorId(), incoming.sensorSeq(), match.distanceM(), clock.instant());
 
         tracks.update(transition.track(), association, transition.lifecycleEvent());
+        hotState.put(transition.track());
         publisher.publishUpdated(transition.track(), outlook.outlookFor(transition.track()));
         log.debug("Associated detection {} to track {} at {} m ({} detections, {})",
                 state.detectionId(), transition.track().id(), Math.round(match.distanceM()),
@@ -150,6 +181,7 @@ public class DetectionCorrelationService {
                 state.detectionId(), state.sensorId(), incoming.sensorSeq(), clock.instant());
 
         tracks.create(track, association, TrackLifecycleEvent.creation(TrackStatus.TENTATIVE, state.observedAt()));
+        hotState.put(track);
         publisher.publishCreated(track, outlook.outlookFor(track));
         log.debug("Opened track {} in sector {} from detection {}", id, sector.value(), state.detectionId());
     }

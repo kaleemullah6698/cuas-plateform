@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import pk.nust.cuas.commons.id.Uuidv7Generator;
+import pk.nust.cuas.track.common.TrackProtoMapper;
 import pk.nust.cuas.track.domain.model.GeoPoint;
 import pk.nust.cuas.track.domain.model.ProtectedAsset;
 import pk.nust.cuas.track.domain.port.ProtectedAssetRegistry;
@@ -15,6 +16,7 @@ import pk.nust.cuas.track.domain.service.CpaCalculator;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.SectorPolicy;
 import pk.nust.cuas.track.domain.service.TrackConfirmationPolicy;
+import pk.nust.cuas.track.domain.service.TrackMergePolicy;
 import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
 import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
 import pk.nust.cuas.track.domain.service.TrajectoryPredictor;
@@ -60,6 +62,12 @@ public class TrackCorrelationConfig {
     }
 
     @Bean
+    public TrackMergePolicy trackMergePolicy(CorrelationProperties properties) {
+        return new TrackMergePolicy(
+                properties.merge().gateM(), properties.merge().requiredConsecutiveSweeps());
+    }
+
+    @Bean
     public KalmanFilter kalmanFilter(CorrelationProperties properties) {
         CorrelationProperties.Kalman k = properties.kalman();
         return new KalmanFilter(k.processNoise(), k.measurementNoise(),
@@ -94,6 +102,15 @@ public class TrackCorrelationConfig {
                                                          CpaCalculator cpaCalculator,
                                                          ProtectedAssetRegistry assets) {
         return new TrackOutlookCalculator(predictor, cpaCalculator, assets);
+    }
+
+    /**
+     * The one domain-to-contract mapping, shared by the Kafka producer and the gRPC stream so the
+     * two surfaces cannot describe the same track differently.
+     */
+    @Bean
+    public TrackProtoMapper trackProtoMapper(KalmanFilter kalman) {
+        return new TrackProtoMapper(kalman);
     }
 
     @Bean

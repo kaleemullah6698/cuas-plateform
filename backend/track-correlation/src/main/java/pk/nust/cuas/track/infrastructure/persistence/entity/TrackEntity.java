@@ -67,6 +67,9 @@ public class TrackEntity {
     @Column(name = "filter_state", nullable = false)
     private String filterState;
 
+    @Column(name = "merged_into_track_id")
+    private UUID mergedIntoTrackId;
+
     @Version
     @Column(name = "version", nullable = false)
     private long version;
@@ -117,6 +120,19 @@ public class TrackEntity {
     /** Applies the terminal lost status, leaving the estimate as the last known one. */
     public void markLost() {
         this.status = TrackStatus.LOST.name();
+    }
+
+    /**
+     * Applies the terminal merged status and the link to the survivor, leaving the estimate as the
+     * last one this track believed. The survivor holds the live answer.
+     */
+    public void markMerged(UUID survivorTrackId) {
+        this.status = TrackStatus.MERGED.name();
+        this.mergedIntoTrackId = survivorTrackId;
+    }
+
+    public UUID mergedIntoTrackId() {
+        return mergedIntoTrackId;
     }
 
     public UUID trackId() {

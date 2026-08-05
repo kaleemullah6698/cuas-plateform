@@ -44,4 +44,16 @@ public interface TrackEventPublisher {
      * @param track the lost track
      */
     void publishLost(Track track);
+
+    /**
+     * Publishes a merged track to {@code track.merged.v1} — the other terminal event.
+     *
+     * <p>The message carries the absorbed track with {@code merged_into_track_id} set, so a consumer
+     * holding the absorbed id can re-key onto the survivor rather than concluding the object
+     * disappeared. No outlook, for the same reason as a lost track: the survivor is the one still
+     * being predicted.
+     *
+     * @param merged the absorbed track, which must name its survivor
+     */
+    void publishMerged(Track merged);
 }

@@ -31,9 +31,10 @@ public final class Track {
     private final int detectionCount;
     private final Instant firstSeen;
     private final Instant lastDetectionAt;
+    private final UUID mergedInto;
 
     private Track(UUID id, SectorId sector, TrackStatus status, KalmanState filter, TrackState estimate,
-                  int detectionCount, Instant firstSeen, Instant lastDetectionAt) {
+                  int detectionCount, Instant firstSeen, Instant lastDetectionAt, UUID mergedInto) {
         this.id = id;
         this.sector = sector;
         this.status = status;
@@ -42,6 +43,7 @@ public final class Track {
         this.detectionCount = detectionCount;
         this.firstSeen = firstSeen;
         this.lastDetectionAt = lastDetectionAt;
+        this.mergedInto = mergedInto;
     }
 
     /**
@@ -55,14 +57,23 @@ public final class Track {
      */
     public static Track open(UUID id, SectorId sector, KalmanState filter, TrackState estimate) {
         return new Track(id, sector, TrackStatus.TENTATIVE, filter, estimate, 1,
-                estimate.observedAt(), estimate.observedAt());
+                estimate.observedAt(), estimate.observedAt(), null);
     }
 
     /** Reconstitutes a track from storage. Used by the repository; not domain behaviour. */
     public static Track reconstitute(UUID id, SectorId sector, TrackStatus status, KalmanState filter,
                                      TrackState estimate, int detectionCount, Instant firstSeen,
                                      Instant lastDetectionAt) {
-        return new Track(id, sector, status, filter, estimate, detectionCount, firstSeen, lastDetectionAt);
+        return new Track(id, sector, status, filter, estimate, detectionCount, firstSeen,
+                lastDetectionAt, null);
+    }
+
+    /** Reconstitutes a merged track from storage, with the survivor it was absorbed into. */
+    public static Track reconstituteMerged(UUID id, SectorId sector, KalmanState filter,
+                                           TrackState estimate, int detectionCount, Instant firstSeen,
+                                           Instant lastDetectionAt, UUID mergedInto) {
+        return new Track(id, sector, TrackStatus.MERGED, filter, estimate, detectionCount, firstSeen,
+                lastDetectionAt, mergedInto);
     }
 
     /**
@@ -103,7 +114,8 @@ public final class Track {
             event = Optional.of(TrackLifecycleEvent.transition(TrackStatus.TENTATIVE, TrackStatus.CONFIRMED,
                     "confirmed after " + newCount + " associated detections", detectionAt));
         }
-        Track updated = new Track(id, sector, newStatus, advanced, newEstimate, newCount, firstSeen, detectionAt);
+        Track updated = new Track(id, sector, newStatus, advanced, newEstimate, newCount, firstSeen,
+                detectionAt, null);
         return new Transition(updated, event);
     }
 
@@ -125,7 +137,7 @@ public final class Track {
                 kalman.position(predicted), kalman.velocity(predicted), now,
                 estimate.detectionId(), estimate.sensorId());
         Track coasting = new Track(id, sector, TrackStatus.COASTING, predicted, predictedEstimate,
-                detectionCount, firstSeen, lastDetectionAt);
+                detectionCount, firstSeen, lastDetectionAt, null);
         return new Transition(coasting, Optional.of(TrackLifecycleEvent.transition(
                 TrackStatus.CONFIRMED, TrackStatus.COASTING, "no detection within the coast timeout", now)));
     }
@@ -142,8 +154,42 @@ public final class Track {
             throw new IllegalStateException("track " + id + " is already lost");
         }
         Track lost = new Track(id, sector, TrackStatus.LOST, filter, estimate, detectionCount,
-                firstSeen, lastDetectionAt);
+                firstSeen, lastDetectionAt, null);
         return new Transition(lost, Optional.of(TrackLifecycleEvent.transition(status, TrackStatus.LOST, reason, now)));
+    }
+
+    /**
+     * Absorbs this track into another: two sensors had independently opened a track on one object,
+     * and this is the younger of the pair (ARCHITECTURE.md section 4.1.5).
+     *
+     * <p>The estimate is left exactly as it was. Re-running the filter over the survivor's
+     * detections would mean reprocessing history to produce a state the survivor already holds a
+     * better version of — it has been fed continuously, this one has not. The merged track keeps its
+     * own final estimate as the historical record of what it believed, and points at the survivor
+     * for anything that needs the live answer.
+     *
+     * @param survivor the track this one is absorbed into — must be a different track
+     * @param now      when the merge was decided
+     * @return the merged track and the transition event
+     * @throws IllegalStateException    when this track is already terminal
+     * @throws IllegalArgumentException when asked to merge a track into itself
+     */
+    public Transition mergeInto(Track survivor, Instant now) {
+        if (status.isTerminal()) {
+            throw new IllegalStateException("track " + id + " is already " + status);
+        }
+        if (survivor.id().equals(id)) {
+            throw new IllegalArgumentException("a track cannot be merged into itself: " + id);
+        }
+        Track merged = new Track(id, sector, TrackStatus.MERGED, filter, estimate, detectionCount,
+                firstSeen, lastDetectionAt, survivor.id());
+        return new Transition(merged, Optional.of(TrackLifecycleEvent.transition(
+                status, TrackStatus.MERGED, "merged into track " + survivor.id(), now)));
+    }
+
+    /** @return the track this one was absorbed into; present only when the status is MERGED */
+    public Optional<UUID> mergedInto() {
+        return Optional.ofNullable(mergedInto);
     }
 
     public UUID id() {

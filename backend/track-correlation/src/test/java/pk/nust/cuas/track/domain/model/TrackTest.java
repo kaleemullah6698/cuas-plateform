@@ -139,6 +139,64 @@ class TrackTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void mergingAbsorbsATrackIntoAnotherAndIsTerminal() {
+        Track survivor = confirmedTrack();
+        Track absorbed = confirmedTrack();
+
+        Track.Transition merged = absorbed.mergeInto(survivor, T.plusSeconds(30));
+
+        assertThat(merged.track().status()).isEqualTo(TrackStatus.MERGED);
+        assertThat(merged.track().mergedInto()).contains(survivor.id());
+        assertThat(merged.track().status().isOpen()).isFalse();
+        assertThat(merged.lifecycleEvent()).hasValueSatisfying(event -> {
+            assertThat(event.from()).contains(TrackStatus.CONFIRMED);
+            assertThat(event.to()).isEqualTo(TrackStatus.MERGED);
+        });
+    }
+
+    @Test
+    void aMergedTrackKeepsItsOwnFinalEstimate() {
+        // Re-running the filter over the survivor's detections would reprocess history to produce a
+        // state the survivor already holds a better version of. The merged track keeps its own
+        // estimate as the record of what it believed, and points at the survivor for the live answer.
+        Track survivor = confirmedTrack();
+        Track absorbed = confirmedTrack();
+
+        Track merged = absorbed.mergeInto(survivor, T.plusSeconds(30)).track();
+
+        assertThat(merged.estimate()).isEqualTo(absorbed.estimate());
+        assertThat(merged.detectionCount()).isEqualTo(absorbed.detectionCount());
+    }
+
+    @Test
+    void aMergedTrackRejectsFurtherAssociationAndFurtherMerging() {
+        Track survivor = confirmedTrack();
+        Track merged = confirmedTrack().mergeInto(survivor, T.plusSeconds(30)).track();
+
+        assertThatThrownBy(() -> merged.associate(
+                new GeoPoint(33.0, 73.0, 100), T.plusSeconds(35), "d9", "s1", kalman, confirmAt3))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> merged.mergeInto(survivor, T.plusSeconds(40)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void aTrackCannotBeMergedIntoItself() {
+        Track track = confirmedTrack();
+
+        assertThatThrownBy(() -> track.mergeInto(track, T.plusSeconds(30)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aLostTrackCannotBeMerged() {
+        Track lost = confirmedTrack().markLost(T.plusSeconds(40), "lost").track();
+
+        assertThatThrownBy(() -> lost.mergeInto(confirmedTrack(), T.plusSeconds(45)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     /** A confirmed track with real eastward motion, so a mis-timed prediction visibly displaces it. */
     private Track movingTrack() {
         KalmanState filter = kalman.initial(ORIGIN, new Velocity(30.0d, 90.0d));

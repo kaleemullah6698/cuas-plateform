@@ -63,7 +63,7 @@ PostgreSQL (10 schemas), Kafka + Schema Registry (KRaft, auto-create disabled), 
 
 ## 1.7 Blockers — retire before implementation
 
-**All of B1–B5 are now CLOSED.** B6 remains an open design risk, addressed at its milestone.
+**All of B1–B6 are now CLOSED.** B6 was retired by M5.
 
 | # | Blocker | Impact | Retired in | Status |
 |---|---|---|---|---|
@@ -72,7 +72,7 @@ PostgreSQL (10 schemas), Kafka + Schema Registry (KRaft, auto-create disabled), 
 | B3 | **`platform-commons` empty.** Every service depends on it. | Services can't share cross-cutting concerns; duplication starts immediately if skipped. | M0 | ✅ **Closed** — implemented, 23/23 tests |
 | B4 | **Kafka topics not declared.** `create-topics.sh` is a placeholder; auto-create is off by design. | Producers/consumers fail at runtime. | M1 | ✅ **Closed** — 24 topics created live, configs verified, produce/consume round-trip passes |
 | B5 | **DB init absent.** `init-databases.sh` is a placeholder. | Services can't connect to their schema. | M0 | ✅ **Closed** — 10 databases created live on PostgreSQL 17, per-database connections verified |
-| B6 | **`track-correlation` is stateful, sector-partitioned** (§4.1.5) — the hardest service. | Highest design risk; must not be rushed. | M5, deliberately isolated | ⬜ Open — by design, addressed at M5 |
+| B6 | **`track-correlation` is stateful, sector-partitioned** (§4.1.5) — the hardest service. | Highest design risk; must not be rushed. | M5, deliberately isolated | ✅ **Closed** — M5 complete; sector assignment, Kalman state, full lifecycle, merge, Redis hot state and the gRPC stream all built and verified |
 
 **None can be worked around. M0 and M1 existed solely to retire B1–B5 before any business logic — all five are now closed, and the infrastructure is live and verified. M2 may begin.**
 
@@ -286,7 +286,7 @@ both are verified against the real wire contract.
 per-sensor limit, DLQ, §5.6 drop-order) are hardening that does not affect the normalised output and
 does not block M5.
 
-**M5 — Correlation** — 🚧 **In progress**
+**M5 — Correlation** — ✅ **Complete**
 Objective: detections → tracks. Services: `track-correlation` (the stateful, sector-partitioned service — isolated deliberately). Deliverables: spatio-temporal association, Kalman state, lifecycle (tentative→confirmed→coasting→lost), CPA to assets, gRPC Infer call to orchestrator (circuit-broken). Dependencies: M4, and M6's contract (calls orchestrator). Expected output: `track.created/updated/lost` events from replayed detections. Testing: heavy domain unit tests on association and Kalman; a lifecycle-transition suite; integration test consuming real detection events.
 
 **M5.1 — Track Correlation Foundation** — ✅ **Complete** — 31 tests
@@ -429,6 +429,138 @@ Verified: `mvn clean verify` — **17 modules, 397 tests** (+18), 0 failures. `T
 now configures a protected asset and asserts the coasting track reaches Kafka carrying a predicted
 trajectory with monotonically growing uncertainty, the named CPA, and a positive position
 uncertainty — the whole path from filter to wire.
+
+**M5.5 — Cross-sensor duplicate elimination** — ✅ **Complete**
+The merge rule M5.3 specified, now built. Delivered: `TrackMergePolicy`, the `MergeCandidate`
+evidence value, the `track_merge_candidates` table, a merge sweep on its own cadence,
+`Track.mergeInto`, the `MERGED` terminal status with `merged_into_track_id`, and `track.merged.v1`.
+
+**Decisions worth defending:**
+- **`MERGED` is a distinct terminal status, not reused `LOST`.** The two mean opposite things
+  downstream: a lost track is an object the system stopped seeing, a merged one is an object still
+  being tracked under another id. Collapsing them would tell an operator a live threat had gone away.
+- **The consecutive-sweep requirement is the whole safeguard, and it is durable.** The evidence lives
+  in a table rather than in memory, because a service restart mid-accumulation would otherwise either
+  lose the evidence or — worse, had it been cached — resume from a count no longer backed by
+  observation. A false merge makes one of two real threats disappear; that asymmetry justifies the
+  extra table.
+- **The pair is keyed lower-id-first, enforced by a database `CHECK`.** Without it `(a,b)` and
+  `(b,a)` could accumulate separately and a pair would merge on half the intended evidence.
+- **Disjoint sensor sets are required.** One sensor reporting an object twice is a duplicate
+  detection, which association already handles. Two tracks sharing a sensor are far more likely to be
+  two real objects that sensor is resolving separately — the formation case.
+- **Coasting tracks are excluded.** Their positions are predicted rather than observed, and merging
+  on a prediction would let two tracks collapse because neither is being measured.
+- **The survivor is the lower UUIDv7.** No timestamp comparison, no tie to break, and every instance
+  decides identically from the ids alone. It is also the id consumers have known longest, so it
+  minimises the re-keying a merge forces on them.
+- **Evidence is voided whenever a track leaves `CONFIRMED`** — on coast, loss, or merge — so stale
+  evidence can never make a later, unrelated pairing merge early.
+- **Both tracks are re-read inside the merge transaction**, not trusted from the sweep's snapshot, and
+  a track merged earlier in a sweep is excluded from the rest of it — otherwise three mutually-close
+  tracks could produce a second merge into a track that had just become terminal.
+
+`TrackMergeIntegrationTest` proves it end to end: two sensors 80 m apart open separate tracks (the
+association gate is shrunk below the merge gate, which is what makes the scenario reachable — with
+the production gate they would simply associate), the pair holds for three sweeps, the younger is
+absorbed, `track.merged.v1` carries both ids, and the lifecycle transition and evidence cleanup are
+both persisted. A second test proves two tracks fed by the *same* sensor never merge however close
+they fly.
+
+**M5.6 — Redis hot in-flight state** — ✅ **Complete**
+§4.1.5's "Redis holds hot in-flight state", built as §4.3's `RedisTrackStateStore`. One Redis hash
+per sector, fields keyed by track id, in front of the per-detection candidate query — the pipeline's
+highest-volume hop, inside §5.8's 80 ms correlation budget. Written through on create, association,
+and coast; evicted on loss and merge.
+
+**Decisions worth defending:**
+- **The cache fails open, and the port says so.** A miss, an unreadable entry, and an unreachable
+  Redis are all defined as "miss", and the caller falls back to PostgreSQL. This is the deliberate
+  opposite of the gateway's fail-closed rule (§7.8): there an unreachable Redis means a security
+  control is not being enforced, so the request must be refused; here it means a query is slower.
+  Refusing to correlate because a cache is down would turn a degraded system into an undetected
+  drone, which §5.6's governing principle forbids.
+- **PostgreSQL remains the source of truth.** Nothing is ever read from the cache that is not also in
+  the database, so the cache can be flushed at any moment with no loss.
+- **A hash per sector, not a serialised list.** A detection changes one track; a list would make
+  every write an O(sector) rewrite and a lost-update race between the consumer and the two sweeps.
+- **The TTL is the lost timeout.** Past it a track could not have been an association candidate
+  anyway, so no stale entry outlives its usefulness even if an evict is lost — the safety net that
+  keeps a cache bug from becoming a correctness bug.
+- **A single unreadable entry misses the whole sector**, rather than returning a short list. A
+  partial candidate set would let a detection open a duplicate track rather than associate to the one
+  it could not read — silently worse than a miss.
+- **The no-op store is a supported configuration, not a test double.** `correlation.hot-state.enabled=false`
+  runs the service with no Redis at all. The port is written so a permanent miss is correct, and that
+  claim is only credible if something exercises it — the integration tests do, running the whole
+  suite against the database path.
+- **One Kalman codec, not two.** `KalmanStateCodec` was widened within the infrastructure layer
+  rather than duplicated for Redis: a divergence between two implementations would surface as a track
+  whose filter resumed differently depending on where it was read from.
+
+`RedisTrackStateStoreIntegrationTest` runs against a real Redis container — a full Kalman state
+round-trips bit-identically, the merged-survivor link survives, evict removes one field, the TTL is
+applied, and a corrupt entry reads as a miss. Three unit tests cover the fallback contract: a hit
+avoids the database, a miss falls back and reseeds, and a terminal track left stale in the cache is
+never offered as a candidate.
+
+**Defect found by that round-trip test — `Axis.equals` compared arrays by reference.** `Axis` is a
+record with a `double[][]` covariance component, and a record's generated `equals` compares an array
+component by *identity*. Two axes carrying identical numbers were therefore unequal, so every round
+trip through the database or the cache looked like a different state — and any assertion that a
+filter resumed where it left off was vacuous. Fixed with an explicit `equals`/`hashCode`/`toString`
+using `Arrays.deepEquals`/`deepHashCode`, and pinned by `AxisTest`. Latent since M5.2; it had caused
+no production misbehaviour because nothing compared two `Axis` values, but it would have silently
+defeated exactly the checks written to catch a filter-resume bug.
+
+**M5.7 — gRPC `SubscribeTracks`** — ✅ **Complete**
+The streaming API of §4.1.5. `contracts/proto/track.proto` gains `TrackService.SubscribeTracks`,
+`SubscribeTracksRequest` (optional sector filter), `TrackEvent` and `TrackEventType` — additive, so
+`buf breaking` stays clean. Served on port 9084 alongside HTTP, wired directly against grpc-java as
+sensor-ingestion and user-service already do.
+
+**Decisions worth defending:**
+- **Fed in process, not from Kafka.** An instance owns its sectors exclusively, so every change to a
+  track it owns happens inside it. Feeding the stream from the broker would add a round trip to a
+  latency budget (§5.8) already spent on inference, and give every subscriber a consumer group.
+- **Kafka first, and only its failure propagates.** `BroadcastingTrackEventPublisher` publishes to
+  Kafka — whose failure rolls the transaction back — then broadcasts, whose failure is logged and
+  swallowed. The topics are the durable record; the stream is a live feed with no replay. Failing
+  correlation over one slow subscriber would let a consumer stop the tracker.
+- **A not-ready subscriber's event is dropped, never buffered.** Unbounded queueing would let one
+  stalled consumer grow heap inside the service that must not stop tracking drones (§5.6).
+- **The mapper moved to `common/`.** Both the Kafka producer (`infrastructure/`) and the stream
+  (`api/`) must map domain → contract, and CLAUDE.md §2 forbids either package from importing the
+  other. Duplicating would let the two surfaces describe the same track differently.
+- **Authorisation is transport-level, per §7.2.** `Service ↔ Service` is mTLS with SPIFFE-style
+  workload identity — the same protection the existing gRPC surfaces rely on, and why none carries
+  `@PreAuthorize`. `track:read` (§7.4) is a *user* permission the gateway enforces before fanning out
+  over its WebSocket (§3.5). Accepting a user token on this internal stream would create a second,
+  weaker path to data the gateway already guards. Recorded here because it is a real security
+  decision, not an omission.
+
+`TrackStreamGrpcServiceTest` covers all four event types and their tags, the sector filter, an empty
+filter meaning all sectors, a stalled subscriber being skipped without starving the others, a failed
+write detaching its subscriber, and cancel-plus-close detaching exactly once.
+
+---
+
+Verified: `mvn clean verify` — **17 modules, 448 tests, 0 failures**.
+
+**Known test-harness noise, not a defect:** after the track-correlation suite passes, surefire logs
+"going to kill self fork JVM" — the timeout and merge schedulers keep firing while Testcontainers
+has already stopped PostgreSQL, so the JVM takes over 30 s to exit *after* the tests have passed and
+exit code 0 has been issued. It costs build time and log noise, nothing else. Left as-is rather than
+suppressed, because the honest fix is scheduler-lifecycle ordering at shutdown and that belongs with
+the M8 hardening pass.
+
+**M5 is complete.** Objective met: detections become tracks, and `track.created/updated/lost/merged`
+are produced from replayed detections. Association, Kalman state, the full lifecycle, trajectory
+prediction, CPA, cross-sensor merge, Redis hot state and the gRPC stream are all built and verified.
+Two items are deferred to M6 with cause — the circuit-broken `Infer` call to `ai-orchestrator` and
+the `ai.inference.completed.v1` consumer behind `track.classified.v1` — because that service does not
+exist until M6, which is what M5's own dependency line ("M4, **and M6's contract**") anticipated.
+**B6, the open design risk since Phase 1, is closed.**
 
 **M6 — AI boundary**
 Objective: the Track-A/Track-B decoupling, working with zero models. Services: `ai-orchestrator`, `mock-inference-provider`. Deliverables: modality routing, per-service timeout + Resilience4j breaker + bulkhead, content-hash cache, canary split, mock fallback publishing `ai.service.degraded.v1`; deterministic latency-realistic failure-injecting mock badged `0.0.0-mock`. Dependencies: M1. Expected output: `ai.inference.completed.v1` produced from mock; breaker opens and falls back under injected failure. Testing: the shared conformance suite (pytest) against the mock; breaker/bulkhead unit tests; a fallback integration test.

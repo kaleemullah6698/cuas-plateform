@@ -31,6 +31,36 @@ enum TrackStatus {
   TRACK_STATUS_MERGED      = 5;  // absorbed into another track; see Track.merged_into_track_id
 }
 
+// The live track stream (section 4.1.5, "gRPC SubscribeTracks (server stream)").
+//
+// A server stream of the same Track messages the Kafka topics carry, for a consumer that needs
+// tracks as they change rather than as a batch — the gateway's WebSocket fan-out (section 3.5) is
+// the first. The event type says which topic the update corresponds to, so one stream replaces four
+// subscriptions and a consumer can tell a birth from a loss without diffing state.
+service TrackService {
+  rpc SubscribeTracks (SubscribeTracksRequest) returns (stream TrackEvent);
+}
+
+message SubscribeTracksRequest {
+  // Sectors to receive. Empty means every sector this instance owns — the normal case, since an
+  // instance owns its sectors exclusively (section 4.1.5) and a subscriber usually wants all of them.
+  repeated string sector_ids = 1;
+}
+
+// Which lifecycle event produced this update — the gRPC equivalent of the topic name.
+enum TrackEventType {
+  TRACK_EVENT_TYPE_UNSPECIFIED = 0;
+  TRACK_EVENT_TYPE_CREATED     = 1;
+  TRACK_EVENT_TYPE_UPDATED     = 2;
+  TRACK_EVENT_TYPE_LOST        = 3;
+  TRACK_EVENT_TYPE_MERGED      = 4;
+}
+
+message TrackEvent {
+  TrackEventType type  = 1;
+  Track          track = 2;
+}
+
 // The Kalman-estimated kinematic state (section 4.1.5: position, velocity, acceleration).
 //
 // Separate from the Track's observed position/speed/heading because the two answer different

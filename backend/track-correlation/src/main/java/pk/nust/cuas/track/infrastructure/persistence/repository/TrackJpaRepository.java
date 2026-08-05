@@ -27,4 +27,8 @@ public interface TrackJpaRepository extends JpaRepository<TrackEntity, UUID> {
     List<TrackEntity> findByStatus(String status, Pageable pageable);
 
     List<TrackEntity> findBySectorIdAndStatus(String sectorId, String status, Pageable pageable);
+
+    /** Every CONFIRMED track — the only status the merge policy will accept on either side. */
+    @Query("SELECT t FROM TrackEntity t WHERE t.status = 'CONFIRMED'")
+    List<TrackEntity> findConfirmed();
 }

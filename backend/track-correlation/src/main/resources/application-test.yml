@@ -15,3 +15,17 @@ logging:
   level:
     root: WARN
     pk.nust.cuas: INFO
+
+# The integration tests run PostgreSQL and Kafka in containers but not Redis. The hot-state cache is
+# optional by design — a permanent miss is correct behaviour — so the tests run against the no-op
+# store and exercise the database path. RedisTrackStateStore has its own Testcontainers test.
+correlation:
+  hot-state:
+    enabled: false
+
+# Every integration test class gets its own Spring context, and Spring keeps them cached in one JVM,
+# so each would start a gRPC server. Port 0 binds an ephemeral port per context; a fixed port makes
+# the second context fail with "address already in use" and takes the whole class down with it.
+grpc:
+  server:
+    port: 0

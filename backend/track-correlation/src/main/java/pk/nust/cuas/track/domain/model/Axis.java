@@ -1,6 +1,7 @@
 package pk.nust.cuas.track.domain.model;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * The constant-acceleration Kalman state for one spatial axis: the estimated position, velocity, and
@@ -34,6 +35,34 @@ public record Axis(double position, double velocity, double acceleration, double
     /** @return the estimate mean as a length-3 vector [position, velocity, acceleration] */
     public double[] mean() {
         return new double[] {position, velocity, acceleration};
+    }
+
+    /**
+     * Value equality, including the covariance contents.
+     *
+     * <p>Overridden because a record's generated {@code equals} compares an array component by
+     * <em>reference</em>. Two axes carrying identical numbers would then be unequal — which makes
+     * every round trip through the database or the Redis cache look like a different state, and
+     * would quietly defeat any check that a filter resumed where it left off.
+     */
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof Axis axis
+                && Double.compare(position, axis.position) == 0
+                && Double.compare(velocity, axis.velocity) == 0
+                && Double.compare(acceleration, axis.acceleration) == 0
+                && Arrays.deepEquals(covariance, axis.covariance);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(position, velocity, acceleration, Arrays.deepHashCode(covariance));
+    }
+
+    @Override
+    public String toString() {
+        return "Axis[position=" + position + ", velocity=" + velocity
+                + ", acceleration=" + acceleration + ", covariance=" + Arrays.deepToString(covariance) + ']';
     }
 
     private static double[][] deepCopy(double[][] matrix) {

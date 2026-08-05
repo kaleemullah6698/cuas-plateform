@@ -3,7 +3,9 @@ package pk.nust.cuas.track.infrastructure.persistence;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Repository;
 import pk.nust.cuas.track.domain.model.DetectionAssociation;
 import pk.nust.cuas.track.domain.model.GeoPoint;
 import pk.nust.cuas.track.domain.model.KalmanState;
+import pk.nust.cuas.track.domain.model.MergeCandidate;
 import pk.nust.cuas.track.domain.model.SectorId;
 import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
@@ -19,10 +22,13 @@ import pk.nust.cuas.track.domain.model.TrackState;
 import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.model.Velocity;
 import pk.nust.cuas.track.domain.port.TrackRepository;
+import pk.nust.cuas.track.infrastructure.persistence.entity.MergeCandidateEntity;
+import pk.nust.cuas.track.infrastructure.persistence.entity.MergeCandidateId;
 import pk.nust.cuas.track.infrastructure.persistence.entity.TrackDetectionEntity;
 import pk.nust.cuas.track.infrastructure.persistence.entity.TrackEntity;
 import pk.nust.cuas.track.infrastructure.persistence.entity.TrackLifecycleEventEntity;
 import pk.nust.cuas.track.infrastructure.persistence.entity.TrackStateEntity;
+import pk.nust.cuas.track.infrastructure.persistence.repository.MergeCandidateJpaRepository;
 import pk.nust.cuas.track.infrastructure.persistence.repository.TrackDetectionJpaRepository;
 import pk.nust.cuas.track.infrastructure.persistence.repository.TrackJpaRepository;
 import pk.nust.cuas.track.infrastructure.persistence.repository.TrackLifecycleEventJpaRepository;
@@ -43,17 +49,20 @@ public class JpaTrackRepository implements TrackRepository {
     private final TrackStateJpaRepository states;
     private final TrackDetectionJpaRepository detections;
     private final TrackLifecycleEventJpaRepository lifecycleEvents;
+    private final MergeCandidateJpaRepository mergeCandidates;
     private final Clock clock;
 
     public JpaTrackRepository(TrackJpaRepository tracks,
                               TrackStateJpaRepository states,
                               TrackDetectionJpaRepository detections,
                               TrackLifecycleEventJpaRepository lifecycleEvents,
+                              MergeCandidateJpaRepository mergeCandidates,
                               Clock clock) {
         this.tracks = tracks;
         this.states = states;
         this.detections = detections;
         this.lifecycleEvents = lifecycleEvents;
+        this.mergeCandidates = mergeCandidates;
         this.clock = clock;
     }
 
@@ -100,6 +109,10 @@ public class JpaTrackRepository implements TrackRepository {
         // no detection to associate.
         states.save(toStateEntity(track));
         lifecycleEvents.save(toLifecycleEntity(track.id(), lifecycleEvent));
+        // No longer CONFIRMED: any accumulated merge evidence is void. A coasting track's position
+        // is predicted rather than observed, and merging on a prediction would let two tracks
+        // collapse because neither is being measured.
+        mergeCandidates.deleteAllInvolving(track.id());
     }
 
     @Override
@@ -108,6 +121,51 @@ public class JpaTrackRepository implements TrackRepository {
         entity.markLost();
         tracks.save(entity);
         lifecycleEvents.save(toLifecycleEntity(track.id(), lifecycleEvent));
+        mergeCandidates.deleteAllInvolving(track.id());
+    }
+
+    @Override
+    public void merge(Track merged, TrackLifecycleEvent lifecycleEvent) {
+        TrackEntity entity = load(merged.id());
+        entity.markMerged(merged.mergedInto().orElseThrow(
+                () -> new IllegalArgumentException("a merged track must name its survivor: " + merged.id())));
+        tracks.save(entity);
+        lifecycleEvents.save(toLifecycleEntity(merged.id(), lifecycleEvent));
+        // The track is no longer CONFIRMED, so every candidacy it is in is void.
+        mergeCandidates.deleteAllInvolving(merged.id());
+    }
+
+    @Override
+    public List<Track> findConfirmed() {
+        return tracks.findConfirmed().stream().map(JpaTrackRepository::toDomain).toList();
+    }
+
+    @Override
+    public Set<String> contributingSensors(UUID trackId) {
+        return new LinkedHashSet<>(detections.findDistinctSensorIds(trackId));
+    }
+
+    @Override
+    public Optional<MergeCandidate> findMergeCandidate(UUID a, UUID b) {
+        return mergeCandidates.findById(MergeCandidateId.of(a, b))
+                .map(JpaTrackRepository::toMergeCandidateDomain);
+    }
+
+    @Override
+    public void saveMergeCandidate(MergeCandidate candidate) {
+        mergeCandidates.save(new MergeCandidateEntity(
+                new MergeCandidateId(candidate.lowerTrackId(), candidate.higherTrackId()),
+                candidate.consecutiveSweeps(), candidate.firstObservedAt(), candidate.lastObservedAt()));
+    }
+
+    @Override
+    public void deleteMergeCandidate(UUID a, UUID b) {
+        mergeCandidates.deleteById(MergeCandidateId.of(a, b));
+    }
+
+    @Override
+    public void deleteMergeCandidatesFor(UUID trackId) {
+        mergeCandidates.deleteAllInvolving(trackId);
     }
 
     @Override
@@ -160,9 +218,19 @@ public class JpaTrackRepository implements TrackRepository {
                 new GeoPoint(entity.latitude(), entity.longitude(), entity.altitudeM()),
                 new Velocity(entity.speedMs(), entity.headingDeg()),
                 entity.observedAt(), entity.lastDetectionId(), entity.lastSensorId());
-        return Track.reconstitute(entity.trackId(), new SectorId(entity.sectorId()),
-                TrackStatus.valueOf(entity.status()), filter, estimate, entity.detectionCount(),
-                entity.firstSeen(), entity.lastDetectionAt());
+        TrackStatus status = TrackStatus.valueOf(entity.status());
+        if (status == TrackStatus.MERGED) {
+            return Track.reconstituteMerged(entity.trackId(), new SectorId(entity.sectorId()), filter,
+                    estimate, entity.detectionCount(), entity.firstSeen(), entity.lastDetectionAt(),
+                    entity.mergedIntoTrackId());
+        }
+        return Track.reconstitute(entity.trackId(), new SectorId(entity.sectorId()), status, filter,
+                estimate, entity.detectionCount(), entity.firstSeen(), entity.lastDetectionAt());
+    }
+
+    private static MergeCandidate toMergeCandidateDomain(MergeCandidateEntity entity) {
+        return new MergeCandidate(entity.getId().getLowerTrackId(), entity.getId().getHigherTrackId(),
+                entity.getConsecutiveSweeps(), entity.getFirstObservedAt(), entity.getLastObservedAt());
     }
 
     private static TrackState toStateDomain(TrackStateEntity entity) {

@@ -156,8 +156,7 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M4 complete; M5 in progress (M5.1 foundation, M5.2 Kalman + lifecycle, M5.3 contracts,
-M5.4 prediction + CPA done).** `mvn clean verify`: 17 modules, 397 tests, 0 failures. Infrastructure verified live
+**M0–M5 complete.** `mvn clean verify`: 17 modules, 448 tests, 0 failures. Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 
@@ -165,12 +164,18 @@ which defects it found.
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
 > exit 0).
 
-Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingestion, track),
+Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingestion, track + `TrackService`),
 `platform-commons`, `audit-service`, `user-service`, `auth-service`, `api-gateway`,
 `sensor-ingestion`, `sensor-simulator`, `track-correlation`. The remaining six services are still
 scaffold.
 
-**Next: remaining M5 sub-milestones** — M5.5 cross-sensor merge, M5.6 Redis hot-state,
-M5.7 gRPC `SubscribeTracks`. The AI-orchestrator `Infer` call and
-`track.classified.v1` are deferred to M6 with cause (the orchestrator does not exist until then).
-Then M6 — AI boundary. Frontend is deferred to M9; `npm ci` has never been run.
+**Next: M6 — AI boundary** (`ai-orchestrator` + `mock-inference-provider`). Two M5 items ride with
+it, deferred with cause because the orchestrator does not exist until M6: the circuit-broken `Infer`
+call from `track-correlation`, and the `ai.inference.completed.v1` consumer behind
+`track.classified.v1`. Frontend is deferred to M9; `npm ci` has never been run.
+
+**On the AI models:** three trained models (RF, Vision, Acoustic) exist as Kaggle notebooks. They
+are *not* production services and are not to be integrated directly. M6 builds the orchestrator with
+the mock provider as the default; the real services arrive later behind the same `InferenceProvider`
+port (§6.1, §6.4) with **no orchestration change**. `acoustic-classifier` is §6.3.5 "future" —
+promoting it needs an architecture amendment, agreed as a follow-on sub-milestone.

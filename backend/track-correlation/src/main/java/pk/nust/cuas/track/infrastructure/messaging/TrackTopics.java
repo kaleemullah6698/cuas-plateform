@@ -7,6 +7,7 @@ public final class TrackTopics {
     public static final String TRACK_CREATED = "track.created.v1";
     public static final String TRACK_UPDATED = "track.updated.v1";
     public static final String TRACK_LOST = "track.lost.v1";
+    public static final String TRACK_MERGED = "track.merged.v1";
 
     private TrackTopics() {
     }

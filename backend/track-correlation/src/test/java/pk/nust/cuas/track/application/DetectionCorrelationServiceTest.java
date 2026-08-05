@@ -32,6 +32,7 @@ import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
 import pk.nust.cuas.track.domain.model.TrackState;
 import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.model.Velocity;
+import pk.nust.cuas.track.domain.port.HotTrackStateStore;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.AssociationPolicy;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
@@ -54,12 +55,15 @@ class DetectionCorrelationServiceTest {
     private TrackEventPublisher publisher;
     @Mock
     private TrackOutlookCalculator outlook;
+    @Mock
+    private HotTrackStateStore hotState;
 
     private final KalmanFilter kalman = new KalmanFilter(1.0, 25.0, 100, 100, 10);
 
     private DetectionCorrelationService service() {
         return new DetectionCorrelationService(
                 tracks,
+                hotState,
                 new SectorPolicy(1.0),
                 new AssociationPolicy(500.0),
                 new TrackConfirmationPolicy(3),
@@ -69,6 +73,48 @@ class DetectionCorrelationServiceTest {
                 outlook,
                 new Uuidv7Generator(new Random(1)),
                 Clock.fixed(T, ZoneOffset.UTC));
+    }
+
+    @Test
+    void aHotStateHitAvoidsTheDatabaseEntirely() {
+        // The point of the cache: the per-detection candidate query is the pipeline's hottest hop.
+        Track cached = existingTrack(1, TrackStatus.TENTATIVE, T);
+        when(hotState.openInSector(any())).thenReturn(Optional.of(List.of(cached)));
+
+        service().correlate(Detections.normalized("d-hit", "s1", 2L, LAT, LON, T.plusSeconds(1)));
+
+        verify(tracks, never()).findOpenInSector(any(), any());
+        verify(publisher).publishUpdated(any(), any());
+    }
+
+    @Test
+    void aHotStateMissFallsBackToTheDatabaseAndSeedsTheCache() {
+        // A miss — or an unreachable Redis, which the port defines as a miss — must cost latency,
+        // never correctness. Correlation continues from PostgreSQL and the cache is repopulated.
+        Track existing = existingTrack(1, TrackStatus.TENTATIVE, T);
+        when(hotState.openInSector(any())).thenReturn(Optional.empty());
+        when(tracks.findOpenInSector(any(), any())).thenReturn(List.of(existing));
+
+        service().correlate(Detections.normalized("d-miss", "s1", 2L, LAT, LON, T.plusSeconds(1)));
+
+        verify(tracks).findOpenInSector(any(), any());
+        verify(hotState).seed(any(), any());
+        verify(publisher).publishUpdated(any(), any());
+    }
+
+    @Test
+    void aTerminalTrackInTheCacheIsNeverOfferedAsACandidate() {
+        // A stale entry that survived its evict must not resurrect a lost track as a candidate; the
+        // detection opens a new track instead of associating to something already given up on.
+        Track lost = Track.reconstitute(UUID.randomUUID(), new SectorId("SECTOR_33_73"),
+                TrackStatus.LOST, kalman.initial(new GeoPoint(LAT, LON, 100), Velocity.NONE),
+                new TrackState(new GeoPoint(LAT, LON, 100), Velocity.NONE, T, "d-old", "s1"), 5, T, T);
+        when(hotState.openInSector(any())).thenReturn(Optional.of(List.of(lost)));
+
+        service().correlate(Detections.normalized("d-new", "s1", 2L, LAT, LON, T.plusSeconds(1)));
+
+        verify(publisher).publishCreated(any(), any());
+        verify(publisher, never()).publishUpdated(any(), any());
     }
 
     private Track existingTrack(int detectionCount, TrackStatus status, Instant lastDetectionAt) {

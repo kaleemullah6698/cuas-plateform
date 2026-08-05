@@ -11,8 +11,13 @@ import pk.nust.cuas.track.domain.model.KalmanState;
  * mean (3) and 3×3 covariance (9). {@code Double.toString} round-trips exactly, so the decoded state
  * is bit-identical to the encoded one — the filter resumes precisely where it left off. The format is
  * versioned so it can evolve without silently misreading old rows.
+ *
+ * <p>Public within the infrastructure layer because the Redis hot-state cache stores the same filter
+ * state and must encode it identically. One codec, one format: a second implementation would be a
+ * second thing to keep in step, and a divergence between them would surface as a track whose filter
+ * resumed differently depending on whether it came from the cache or the database.
  */
-final class KalmanStateCodec {
+public final class KalmanStateCodec {
 
     private static final String VERSION = "v1";
     private static final int AXIS_VALUES = 12;      // 3 mean + 9 covariance
@@ -21,7 +26,7 @@ final class KalmanStateCodec {
     private KalmanStateCodec() {
     }
 
-    static String encode(KalmanState state) {
+    public static String encode(KalmanState state) {
         StringBuilder out = new StringBuilder(VERSION);
         append(out, state.origin().latitude());
         append(out, state.origin().longitude());
@@ -32,7 +37,7 @@ final class KalmanStateCodec {
         return out.toString();
     }
 
-    static KalmanState decode(String encoded) {
+    public static KalmanState decode(String encoded) {
         String[] parts = encoded.split(",");
         if (parts.length != TOTAL_VALUES + 1 || !VERSION.equals(parts[0])) {
             throw new IllegalArgumentException("unrecognised filter_state format");

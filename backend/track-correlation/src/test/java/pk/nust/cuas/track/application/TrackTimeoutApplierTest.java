@@ -23,6 +23,7 @@ import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.model.TrackState;
 import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.model.Velocity;
+import pk.nust.cuas.track.domain.port.HotTrackStateStore;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
@@ -39,11 +40,13 @@ class TrackTimeoutApplierTest {
     private TrackEventPublisher publisher;
     @Mock
     private TrackOutlookCalculator outlook;
+    @Mock
+    private HotTrackStateStore hotState;
 
     private final KalmanFilter kalman = new KalmanFilter(1.0, 25.0, 100, 100, 10);
 
     private TrackTimeoutApplier applier() {
-        return new TrackTimeoutApplier(tracks,
+        return new TrackTimeoutApplier(tracks, hotState,
                 new TrackTimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(30)), kalman, publisher, outlook);
     }
 

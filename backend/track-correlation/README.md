@@ -2,8 +2,8 @@
 
 Normalised detections associated into tracks.
 
-- **Port:** 8084
-- **Database:** `trackdb` (`tracks`, `track_states`, `track_detections`, `track_lifecycle_events`)
+- **Ports:** 8084 (HTTP), 9084 (gRPC)
+- **Database:** `trackdb` (`tracks`, `track_states`, `track_detections`, `track_lifecycle_events`, `track_merge_candidates`); Redis for hot in-flight state
 - **Specification:** `docs/ARCHITECTURE.md` sections 4.1.5, 5.3.2
 
 ## The pipeline
@@ -14,10 +14,16 @@ sensor.detection.normalized.v1 ─▶ (consume)
           match ─▶ Kalman predict-then-update, extend track ─▶ track.updated.v1
           no match ─▶ open a new tentative track            ─▶ track.created.v1
 
-timeout sweep (every check-interval)
+timeout sweep (every lifecycle.check-interval)
      confirmed, unfed past coast-timeout ─▶ predict forward, COASTING ─▶ track.updated.v1
      open,      unfed past lost-timeout  ─▶ LOST (terminal)           ─▶ track.lost.v1
+
+merge sweep (every merge.check-interval)
+     two confirmed tracks, one sector, disjoint sensors, inside the gate for N sweeps
+                                         ─▶ younger MERGED (terminal) ─▶ track.merged.v1
 ```
+
+Every published track also goes to the in-process gRPC `SubscribeTracks` subscribers.
 
 A detection is placed in a geographic sector and compared against the open tracks recently seen
 there. Each candidate is first *predicted* by its own Kalman filter to the detection's time, and the
@@ -25,9 +31,9 @@ detection extends the nearest track whose predicted position falls inside the di
 matching none, it opens a new tentative track. A track confirms once enough detections have
 associated to it. The aggregate and its full history — every state, association, and lifecycle
 transition — are persisted, and the track is published on `track.created.v1` / `track.updated.v1` /
-`track.lost.v1`.
+`track.lost.v1` / `track.merged.v1`.
 
-## Four things worth knowing before changing this service
+## What to know before changing this service
 
 **Association gates on the prediction, not the last fix.** Each candidate is offered to the policy
 with the position its filter predicts for the detection's time. That is what lets a fast-moving
@@ -45,10 +51,10 @@ covered, and silently corrupts the estimate on revival.
 **It runs single-threaded, on purpose.** The consumer's concurrency is one, which is what lets the
 read-modify-write on a track be a plain transaction. The timeout sweep runs alongside it, so each
 swept track transitions in its own transaction under an optimistic lock (`@Version`); a track that a
-detection changed concurrently simply loses the race and is retried on the next tick. Concurrent
-per-sector processing and the Redis hot-state cache (section 4.1.5) are the scaling half of the
-sector model, still deferred. The sector is assigned and association is scoped to it; the exclusive
-per-instance sector ownership is not yet built.
+detection changed concurrently simply loses the race and is retried on the next tick — as does the
+merge sweep, which runs on its own cadence. The sector is assigned and association is scoped to it;
+**exclusive per-instance sector ownership and concurrent per-sector processing are not yet built**,
+and are what the service would need before it could be scaled out horizontally.
 
 **The outlook is derived, never stored.** A published track carries where it is going
 (`predicted_trajectory`) and what it is closing on (`nearest_asset_cpa`). Both are recomputed from
@@ -69,10 +75,37 @@ today's adapter reads `correlation.assets` from configuration. §4.1.12 assigns 
 Configuration Service, so at M8 the adapter is replaced by a config-service-backed one refreshed via
 `WatchConfig` — an infrastructure swap with no domain, CPA, or contract change.
 
-**Still to come in M5.** Cross-sensor duplicate elimination (`track.merged.v1`), the Redis hot-state
-cache, and the gRPC `SubscribeTracks` stream. The circuit-broken gRPC call to `ai-orchestrator` and
-the `ai.inference.completed.v1` consumer behind `track.classified.v1` are deferred to M6, where that
-service first exists.
+**A merge needs evidence, not a coincidence.** Two confirmed tracks in one sector, fed by *disjoint*
+sensor sets, whose estimates stay inside the merge gate for N consecutive sweeps, collapse into one:
+the older survives (UUIDv7 is time-ordered, so "older" is the lower id and every instance would
+decide identically), the younger becomes `MERGED` with `merged_into_track_id` set, and
+`track.merged.v1` carries both ids so consumers can re-key. The N-sweep requirement is the whole
+safeguard — a single sweep finding two tracks close together is exactly what two drones in close
+formation produce, and **a false merge makes one of two real threats vanish from the operator's
+screen**, which is far worse than a missed merge. The evidence lives in `track_merge_candidates`,
+keyed on the ordered pair so `(a,b)` and `(b,a)` cannot accumulate separately, and is discarded the
+moment a pair drifts apart or either track stops being `CONFIRMED` — the requirement is
+*consecutive*, so a break resets rather than pauses.
+
+`MERGED` is deliberately distinct from `LOST`: a lost track is an object the system stopped seeing,
+a merged one is an object still being tracked under another id. Collapsing the two would tell an
+operator that a live threat had gone away.
+
+**The hot state is a cache, and it fails open.** Every detection needs its sector's open tracks
+before it can be associated — a database round trip at the pipeline's highest-volume hop, inside an
+80 ms budget (§5.8). Redis holds one hash per sector, fields keyed by track id, written through on
+every change and evicted when a track goes terminal. **PostgreSQL stays the source of truth**: a
+miss, a corrupt entry, or an unreachable Redis all read as a miss and the query falls back to the
+database. That is the opposite of the gateway's fail-closed rule (§7.8) and deliberately so — there,
+an unreachable Redis means a security control is not being enforced; here it means a query is
+slower, and refusing to correlate detections because a cache is down turns a degraded system into an
+undetected drone (§5.6). The TTL is the lost timeout, so no stale entry can outlive the window in
+which its track could still have been a candidate. Set `correlation.hot-state.enabled=false` to run
+with no Redis at all — the no-op store is a supported configuration, not a test double.
+
+**Deferred to M6 with cause.** The circuit-broken gRPC call to `ai-orchestrator` and the
+`ai.inference.completed.v1` consumer behind `track.classified.v1`: that service does not exist until
+M6, and this milestone's own dependency line already reads "M4, and M6's contract".
 
 **Correlation is idempotent.** A detection is associated to a track at most once (a unique
 `(track_id, detection_id)` constraint, and a `detectionAlreadyAssociated` guard before processing),
@@ -84,8 +117,35 @@ than leaving a track with no event.
 
 `GET /tracks`, `GET /tracks/{id}`, `GET /tracks/{id}/history` — all guarded by `track:read`
 (section 7.4), the permission every role holds. There are no mutating endpoints: a track changes
-only by consuming detections or by the timeout sweep, never over HTTP. The gRPC `SubscribeTracks`
-stream (section 4.1.5) is not yet built.
+only by consuming detections or by the sweeps, never over HTTP.
+
+`TrackResponse` is deliberately a summary: it carries the estimate but not the predicted trajectory
+or CPA. Those are delivered on `track.updated.v1` and the gRPC stream, which is what the operator
+console actually reads (§2.5.2, §3.5); putting them on the list endpoint would compute N outlooks per
+request for data nothing polls.
+
+## gRPC — `TrackService.SubscribeTracks`
+
+A server stream of the same `Track` messages the topics carry, tagged with the lifecycle event that
+produced each (`CREATED`/`UPDATED`/`LOST`/`MERGED`), optionally filtered to a set of sectors. Port
+9084. The gateway's WebSocket fan-out (§3.5) is its first consumer.
+
+Fed **in process**, not from Kafka: an instance owns its sectors exclusively, so every change to a
+track it owns happens inside it, and a broker round trip would spend latency budget (§5.8) for
+nothing. `BroadcastingTrackEventPublisher` sends to Kafka first and then to subscribers — **Kafka's
+failure propagates and rolls back the transaction, the broadcast's does not.** The topics are the
+durable record; the stream is a live feed with no replay, so failing correlation over one slow
+consumer would let a subscriber stop the tracker.
+
+For the same reason a subscriber whose transport is not ready has its event **dropped, not
+buffered** — unbounded queueing would let one stalled consumer grow heap inside the service that must
+not stop tracking drones (§5.6).
+
+**Authorisation is transport-level (§7.2):** `Service ↔ Service` is mTLS with SPIFFE-style workload
+identity, which is what the existing gRPC surfaces in user-service and sensor-ingestion rely on and
+why none of them carries `@PreAuthorize`. `track:read` (§7.4) is a *user* permission — the gateway
+holds the user's JWT, enforces it, and fans out over its WebSocket. Accepting a user token on this
+internal stream would create a second, weaker path to data the gateway already guards.
 
 ## Configuration
 
@@ -105,3 +165,9 @@ stream (section 4.1.5) is not yet built.
 | `correlation.prediction.horizon` | `PT30S` | How far ahead a track's trajectory is projected |
 | `correlation.prediction.step` | `PT5S` | Interval between predicted points |
 | `correlation.assets` | `[]` | Protected assets for CPA — `id`, `name`, `latitude`, `longitude`, `altitude-m` |
+| `correlation.merge.gate-m` | `150` | How close two estimates must be to be merge candidates |
+| `correlation.merge.required-consecutive-sweeps` | `3` | Sweeps in a row a pair must stay inside the gate |
+| `correlation.merge.check-interval` | `PT5S` | How often the merge sweep runs — the unit sweeps are counted in |
+| `correlation.hot-state.enabled` | `true` | Redis hot in-flight state; `false` reads candidates from PostgreSQL every time |
+| `spring.data.redis.*` | `localhost:6379` | Hot-state connection; §7.2 requires TLS + AUTH in production |
+| `grpc.server.port` | `9084` | `TrackService.SubscribeTracks` listener |

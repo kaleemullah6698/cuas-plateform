@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.domain.model.Track;
+import pk.nust.cuas.track.domain.port.HotTrackStateStore;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
@@ -30,15 +31,17 @@ public class TrackTimeoutApplier {
     private static final Logger log = LoggerFactory.getLogger(TrackTimeoutApplier.class);
 
     private final TrackRepository tracks;
+    private final HotTrackStateStore hotState;
     private final TrackTimeoutPolicy timeoutPolicy;
     private final KalmanFilter kalman;
     private final TrackEventPublisher publisher;
     private final TrackOutlookCalculator outlook;
 
-    public TrackTimeoutApplier(TrackRepository tracks, TrackTimeoutPolicy timeoutPolicy,
+    public TrackTimeoutApplier(TrackRepository tracks, HotTrackStateStore hotState, TrackTimeoutPolicy timeoutPolicy,
                                KalmanFilter kalman, TrackEventPublisher publisher,
                                TrackOutlookCalculator outlook) {
         this.tracks = tracks;
+        this.hotState = hotState;
         this.timeoutPolicy = timeoutPolicy;
         this.kalman = kalman;
         this.publisher = publisher;
@@ -68,6 +71,8 @@ public class TrackTimeoutApplier {
     private void coast(Track track, Instant now) {
         Track.Transition transition = track.coast(now, kalman);
         tracks.coast(transition.track(), transition.lifecycleEvent().orElseThrow());
+        // Still open, so it stays a candidate — but at its newly predicted position.
+        hotState.put(transition.track());
         publisher.publishUpdated(transition.track(), outlook.outlookFor(transition.track()));
         log.debug("Track {} is coasting", track.id());
     }
@@ -75,6 +80,8 @@ public class TrackTimeoutApplier {
     private void lose(Track track, Instant now) {
         Track.Transition transition = track.markLost(now, "no detection within the lost timeout");
         tracks.lose(transition.track(), transition.lifecycleEvent().orElseThrow());
+        // Terminal: leaving it cached would offer the pipeline a track it must not associate to.
+        hotState.evict(track.sector(), track.id());
         publisher.publishLost(transition.track());
         log.debug("Track {} is lost", track.id());
     }

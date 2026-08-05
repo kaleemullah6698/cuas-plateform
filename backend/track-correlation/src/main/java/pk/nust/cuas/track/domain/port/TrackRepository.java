@@ -3,8 +3,10 @@ package pk.nust.cuas.track.domain.port;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import pk.nust.cuas.track.domain.model.DetectionAssociation;
+import pk.nust.cuas.track.domain.model.MergeCandidate;
 import pk.nust.cuas.track.domain.model.SectorId;
 import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
@@ -60,6 +62,35 @@ public interface TrackRepository {
     void lose(Track track, TrackLifecycleEvent lifecycleEvent);
 
     /**
+     * Persists a merge: the younger track's terminal row, its link to the survivor, and the event.
+     *
+     * <p>The survivor is untouched — it has been fed continuously and already holds the better
+     * estimate, so a merge changes only the track being absorbed.
+     *
+     * @param merged         the younger track, now {@code MERGED}
+     * @param lifecycleEvent the transition into {@code MERGED}
+     */
+    void merge(Track merged, TrackLifecycleEvent lifecycleEvent);
+
+    /**
+     * The confirmed tracks that could still be merged, across every sector.
+     *
+     * <p>Only {@code CONFIRMED} tracks, because {@link pk.nust.cuas.track.domain.service.TrackMergePolicy}
+     * will reject anything else; filtering here keeps the merge sweep from loading tracks it cannot use.
+     *
+     * @return the merge-eligible tracks
+     */
+    List<Track> findConfirmed();
+
+    /**
+     * The distinct sensors that have fed a track — what makes a merge a <em>cross-sensor</em> one.
+     *
+     * @param trackId the track
+     * @return the sensor ids, empty when the track has no associations
+     */
+    Set<String> contributingSensors(UUID trackId);
+
+    /**
      * @param id a track id
      * @return the track, or empty if none exists
      */
@@ -76,4 +107,33 @@ public interface TrackRepository {
      * @return the track's observed states, newest first
      */
     List<TrackState> history(UUID trackId, int limit);
+
+    /**
+     * @param a one track id
+     * @param b the other; order does not matter
+     * @return the accumulated merge evidence for the pair, or empty when they have not been seen
+     *     together on a previous sweep
+     */
+    Optional<MergeCandidate> findMergeCandidate(UUID a, UUID b);
+
+    /** Inserts or advances a pair's merge evidence. */
+    void saveMergeCandidate(MergeCandidate candidate);
+
+    /**
+     * Discards a pair's accumulated evidence — the pair drifted back outside the gate, or one of them
+     * has merged. The requirement is <em>consecutive</em> sweeps, so a break resets the count to zero
+     * rather than pausing it.
+     *
+     * @param a one track id
+     * @param b the other; order does not matter
+     */
+    void deleteMergeCandidate(UUID a, UUID b);
+
+    /**
+     * Discards every candidacy a track is part of. Used when a track leaves {@code CONFIRMED} for any
+     * reason, so stale evidence cannot make a later, unrelated pairing merge early.
+     *
+     * @param trackId the track whose candidacies are cleared
+     */
+    void deleteMergeCandidatesFor(UUID trackId);
 }
