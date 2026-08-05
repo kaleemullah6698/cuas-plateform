@@ -24,3 +24,10 @@ spring:
           # The admin API is exercised through MockMvc with an injected JWT, so the key set is never
           # fetched; this URL is a placeholder that is never called.
           jwk-set-uri: http://localhost:59999/jwks
+
+# Each integration test class gets its own cached Spring context in one JVM, and each would start a
+# gRPC server. Port 0 binds an ephemeral port per context; a fixed port makes the second context fail
+# with "address already in use" and takes the whole class down.
+grpc:
+  server:
+    port: 0

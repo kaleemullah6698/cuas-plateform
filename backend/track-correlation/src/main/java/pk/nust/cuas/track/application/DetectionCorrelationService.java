@@ -12,12 +12,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pk.nust.cuas.commons.id.Uuidv7Generator;
 import pk.nust.cuas.detection.v1.DetectionRecord;
+import pk.nust.cuas.track.application.port.TrackClassifier;
 import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.domain.model.DetectionAssociation;
 import pk.nust.cuas.track.domain.model.KalmanState;
 import pk.nust.cuas.track.domain.model.SectorId;
 import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
+import pk.nust.cuas.track.domain.model.TrackClassification;
 import pk.nust.cuas.track.domain.model.TrackState;
 import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.port.HotTrackStateStore;
@@ -56,6 +58,7 @@ public class DetectionCorrelationService {
     private final KalmanFilter kalman;
     private final TrackEventPublisher publisher;
     private final TrackOutlookCalculator outlook;
+    private final TrackClassifier classifier;
     private final Uuidv7Generator idGenerator;
     private final Clock clock;
     private final Duration candidateWindow;
@@ -69,6 +72,7 @@ public class DetectionCorrelationService {
                                        TrackTimeoutPolicy timeoutPolicy,
                                        TrackEventPublisher publisher,
                                        TrackOutlookCalculator outlook,
+                                       TrackClassifier classifier,
                                        Uuidv7Generator idGenerator,
                                        Clock clock) {
         this.tracks = tracks;
@@ -79,6 +83,7 @@ public class DetectionCorrelationService {
         this.kalman = kalman;
         this.publisher = publisher;
         this.outlook = outlook;
+        this.classifier = classifier;
         this.idGenerator = idGenerator;
         this.clock = clock;
         // A track older than the lost timeout would already be lost, so it is never an association
@@ -108,11 +113,14 @@ public class DetectionCorrelationService {
         List<AssociationPolicy.Candidate> candidates = candidates(sector, state.observedAt());
         Optional<AssociationPolicy.Match> match = associationPolicy.select(state.position(), candidates);
 
-        if (match.isPresent()) {
-            extend(match.get(), maybe.get());
-        } else {
-            open(sector, maybe.get());
-        }
+        Track track = match.isPresent()
+                ? extend(match.get(), maybe.get())
+                : open(sector, maybe.get());
+
+        // The AI boundary is asked last, once the track is persisted and announced: a classification
+        // enriches a track that already exists, and an unavailable orchestrator must not prevent one
+        // being created.
+        classify(track, record);
     }
 
     private List<AssociationPolicy.Candidate> candidates(SectorId sector, Instant observedAt) {
@@ -154,7 +162,7 @@ public class DetectionCorrelationService {
         return fromDatabase;
     }
 
-    private void extend(AssociationPolicy.Match match, IncomingDetection incoming) {
+    private Track extend(AssociationPolicy.Match match, IncomingDetection incoming) {
         TrackState state = incoming.state();
         Track.Transition transition = match.track().associate(
                 state.position(), state.observedAt(), state.detectionId(), state.sensorId(),
@@ -168,9 +176,10 @@ public class DetectionCorrelationService {
         log.debug("Associated detection {} to track {} at {} m ({} detections, {})",
                 state.detectionId(), transition.track().id(), Math.round(match.distanceM()),
                 transition.track().detectionCount(), transition.track().status());
+        return transition.track();
     }
 
-    private void open(SectorId sector, IncomingDetection incoming) {
+    private Track open(SectorId sector, IncomingDetection incoming) {
         TrackState state = incoming.state();
         KalmanState filter = kalman.initial(state.position(), state.velocity());
         TrackState estimate = new TrackState(kalman.position(filter), kalman.velocity(filter),
@@ -184,6 +193,20 @@ public class DetectionCorrelationService {
         hotState.put(track);
         publisher.publishCreated(track, outlook.outlookFor(track));
         log.debug("Opened track {} in sector {} from detection {}", id, sector.value(), state.detectionId());
+        return track;
+    }
+
+    /**
+     * Asks the AI boundary what this track is, and publishes the answer.
+     *
+     * <p>Inside the correlation transaction, which is why the client is deadlined and circuit-broken:
+     * every millisecond here is one the consumer is not reading the next detection. The port returns
+     * empty rather than throwing, so an unavailable orchestrator leaves the track unclassified and
+     * the pipeline continues — §5.6's rule that a track is never dropped, only degraded.
+     */
+    private void classify(Track track, DetectionRecord detection) {
+        Optional<TrackClassification> classification = classifier.classify(track, detection);
+        classification.ifPresent(result -> publisher.publishClassified(track, result));
     }
 
     private static double seconds(Instant from, Instant to) {

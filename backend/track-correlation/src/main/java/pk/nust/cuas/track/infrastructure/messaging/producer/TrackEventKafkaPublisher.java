@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.common.TrackProtoMapper;
 import pk.nust.cuas.track.domain.model.Track;
+import pk.nust.cuas.track.domain.model.TrackClassification;
 import pk.nust.cuas.track.domain.model.TrackOutlook;
 import pk.nust.cuas.track.infrastructure.messaging.TrackTopics;
 
@@ -60,10 +61,20 @@ public class TrackEventKafkaPublisher implements TrackEventPublisher {
         log.debug("Published track.merged for {} into {}", merged.id(), merged.mergedInto().orElseThrow());
     }
 
+    @Override
+    public void publishClassified(Track track, TrackClassification classification) {
+        byte[] payload = mapper.toProto(track, TrackOutlook.none(), classification).toByteArray();
+        sendPayload(TrackTopics.TRACK_CLASSIFIED, track.id().toString(), payload);
+        log.debug("Published track.classified for {} as {}", track.id(), classification.label());
+    }
+
     private void send(String topic, Track track, TrackOutlook outlook) {
-        byte[] payload = mapper.toProto(track, outlook).toByteArray();
+        sendPayload(topic, track.id().toString(), mapper.toProto(track, outlook).toByteArray());
+    }
+
+    private void sendPayload(String topic, String key, byte[] payload) {
         try {
-            kafkaTemplate.send(topic, track.id().toString(), payload).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            kafkaTemplate.send(topic, key, payload).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted publishing to " + topic, ex);

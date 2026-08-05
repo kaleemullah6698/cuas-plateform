@@ -16,11 +16,16 @@ logging:
     root: WARN
     pk.nust.cuas: INFO
 
-# The integration tests run PostgreSQL and Kafka in containers but not Redis. The hot-state cache is
-# optional by design — a permanent miss is correct behaviour — so the tests run against the no-op
-# store and exercise the database path. RedisTrackStateStore has its own Testcontainers test.
 correlation:
+  # The integration tests run PostgreSQL and Kafka in containers but not Redis. The hot-state cache
+  # is optional by design — a permanent miss is correct behaviour — so the tests run against the
+  # no-op store and exercise the database path. RedisTrackStateStore has its own Testcontainers test.
   hot-state:
+    enabled: false
+  # No orchestrator runs in the correlation suite; classification is exercised by its own unit tests
+  # and by the orchestrator's. Disabled here so no test spends a deadline per detection discovering
+  # that nothing is listening.
+  ai:
     enabled: false
 
 # Every integration test class gets its own Spring context, and Spring keeps them cached in one JVM,

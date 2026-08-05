@@ -102,6 +102,8 @@ documentation assumes.
 | `mvn clean verify` (M6.4 Kafka + cache) | ✅ Executed | ai-orchestrator: **135 tests** (+39) |
 | Orchestrator Testcontainers suites | ✅ Executed | `RedisInferenceCacheIntegrationTest` (7) against real Redis 7.4 — a full protobuf response round-trips byte-identically, the service is part of the key, the TTL is applied and actually expires, a corrupt entry reads as a miss, and an unreachable Redis reads as a miss rather than throwing. `InferenceEventKafkaIntegrationTest` (4) against real Kafka — a routed request emits `requested` + `completed` keyed by `trackId` with the mock badge intact, modality routing is respected, an unroutable modality yields nothing, and an unusable outcome goes to `failed` rather than `completed` |
 | `mvn clean verify` (M6.5 gRPC + canary + admin API) | ✅ Executed | ai-orchestrator: **153 tests** (+18) — canary splits 90/10 by track and holds an assignment for life, assignments are independent across services, and the admin API enforces `ai:configure` on both read and write with semantic-version and 0-100 validation |
+| `mvn clean verify` (M6.6 Track A integration) | ✅ Executed | The orchestrator serves `Infer` on 9085; track-correlation calls it deadlined and circuit-broken behind a `TrackClassifier` port, consumes `ai.inference.completed.v1`, and publishes `track.classified.v1` |
+| `buf lint` / `buf breaking` / `buf generate` (M6.6) | ✅ Executed | `TrackClassification` added to `track.proto` and set on `Track` — lint clean, **breaking clean** (additive) |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

@@ -7,6 +7,7 @@ import pk.nust.cuas.detection.v1.GeoPosition;
 import pk.nust.cuas.track.domain.model.GeoPoint;
 import pk.nust.cuas.track.domain.model.PredictedPoint;
 import pk.nust.cuas.track.domain.model.Track;
+import pk.nust.cuas.track.domain.model.TrackClassification;
 import pk.nust.cuas.track.domain.model.TrackOutlook;
 import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
@@ -34,6 +35,26 @@ public class TrackProtoMapper {
 
     public TrackProtoMapper(KalmanFilter kalman) {
         this.kalman = kalman;
+    }
+
+    /**
+     * @param track          the track
+     * @param outlook        its trajectory and CPA
+     * @param classification what the AI boundary concluded, for {@code track.classified.v1}
+     * @return the wire representation, carrying the classification
+     */
+    public pk.nust.cuas.track.v1.Track toProto(Track track, TrackOutlook outlook,
+                                               TrackClassification classification) {
+        return toProto(track, outlook).toBuilder()
+                .setClassification(pk.nust.cuas.track.v1.TrackClassification.newBuilder()
+                        .setLabel(classification.label())
+                        .setLabelClass(classification.labelClass())
+                        .setConfidence((float) classification.confidence())
+                        .setModelId(classification.modelId())
+                        .setModelVersion(classification.modelVersion())
+                        .setDevice(classification.device())
+                        .setClassifiedAt(toTimestamp(classification.classifiedAt())))
+                .build();
     }
 
     /**

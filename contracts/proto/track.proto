@@ -61,6 +61,25 @@ message TrackEvent {
   Track          track = 2;
 }
 
+// What the AI boundary concluded about a track, carried on track.classified.v1 (section 4.1.5).
+//
+// Only the top prediction: a track describes itself with one label, and the full inference — every
+// ranked prediction, every attribution — is on ai.inference.completed.v1 for consumers that want it.
+//
+// model_version and device are carried deliberately. Section 6.4 requires a mocked result to stay
+// distinguishable from a real one wherever it surfaces; a classification that reached the operator's
+// screen without them would have lost exactly that distinction.
+message TrackClassification {
+  string label       = 1;   // the top prediction
+  string label_class = 2;   // "DRONE" | "NON_DRONE" | "BACKGROUND"
+  float  confidence  = 3;   // [0,1] calibrated
+
+  string model_id      = 10;
+  string model_version = 11;  // "0.0.0-mock" for a mocked result
+  string device        = 12;  // "DEVICE_MOCK" for a mocked result
+  google.protobuf.Timestamp classified_at = 13;
+}
+
 // The Kalman-estimated kinematic state (section 4.1.5: position, velocity, acceleration).
 //
 // Separate from the Track's observed position/speed/heading because the two answer different
@@ -133,4 +152,8 @@ message Track {
   // no protected asset is configured or none is reachable within the prediction horizon.
   repeated PredictedPoint        predicted_trajectory = 40;
   ClosestPointOfApproach         nearest_asset_cpa    = 41;
+
+  // Set on track.classified.v1; unset on the other track topics, since a track is published long
+  // before anything has judged it.
+  TrackClassification            classification       = 42;
 }

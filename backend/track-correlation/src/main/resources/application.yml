@@ -85,6 +85,13 @@ correlation:
   # correctness. Set to false to run without Redis at all.
   hot-state:
     enabled: ${CORRELATION_HOT_STATE_ENABLED:true}
+  # The synchronous call to the AI boundary (sections 4.1.5, 6.5). Deadlined and circuit-broken
+  # because it sits inside the detection-processing transaction. Set enabled=false to run the
+  # correlator with no AI boundary at all — tracks are simply never classified.
+  ai:
+    enabled: ${CORRELATION_AI_ENABLED:true}
+    endpoint: ${AI_ORCHESTRATOR_ENDPOINT:localhost:9085}
+    timeout: PT0.5S
   merge:
     gate-m: 150
     required-consecutive-sweeps: 3

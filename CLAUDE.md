@@ -156,7 +156,7 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M5 complete; M6 in progress (M6.1–M6.5 done).** `mvn clean verify`: 17 modules, 601 tests, 0 failures. Infrastructure verified live
+**M0–M6 complete.** `mvn clean verify`: 17 modules, 607 tests, 0 failures. Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 
@@ -166,13 +166,15 @@ which defects it found.
 
 Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingestion, track + `TrackService`),
 `platform-commons`, `audit-service`, `user-service`, `auth-service`, `api-gateway`,
-`sensor-ingestion`, `sensor-simulator`, `track-correlation`. The remaining six services are still
-scaffold.
+`sensor-ingestion`, `sensor-simulator`, `track-correlation`, `ai-orchestrator`. The remaining five
+services are still scaffold.
 
-**M6 in progress** (`ai-orchestrator` + `mock-inference-provider`). M6.1 foundation done. Two M5 items ride with
-it, deferred with cause because the orchestrator does not exist until M6: the circuit-broken `Infer`
-call from `track-correlation`, and the `ai.inference.completed.v1` consumer behind
-`track.classified.v1`. Frontend is deferred to M9; `npm ci` has never been run.
+**M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
+trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,
+canary, the four `ai.*` topics, the admin API, and track-correlation's circuit-broken `Infer` call
+producing `track.classified.v1`. Frontend is deferred to M9; `npm ci` has never been run.
+
+**Next: M7 — assessment & alerting** (`threat-assessment`, `alert-service`, `notification-service`).
 
 **The orchestrator must never name a model.** §6.1's guarantee — a new model is a configuration
 entry, not a code change — is enforced by `ModelAgnosticismTest`, which fails the build if a §6.3

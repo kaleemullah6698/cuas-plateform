@@ -811,6 +811,77 @@ contract, `CanaryPolicy` splitting by `trackId` hash per §6.6, and `GET /ai/ser
 
 Verified: `mvn clean verify` — **17 modules, 601 tests** (+18), 0 failures.
 
+**M6.6 — Track A integration** — ✅ **Complete**
+The two items M5 deferred with cause, now that the orchestrator exists. Delivered: the orchestrator's
+own `Infer` endpoint, track-correlation's circuit-broken `AiOrchestratorGrpcClient` behind a
+`TrackClassifier` port, the `ai.inference.completed.v1` consumer, and `track.classified.v1`.
+
+**Decisions worth defending:**
+- **The orchestrator implements the same `InferenceService` contract it consumes.** §6.5's sequence
+  becomes literal: track-correlation issues `Infer` and the orchestrator fans it out. A second,
+  orchestrator-specific RPC would be another contract to maintain and would let the two drift.
+- **One response is returned from many services** — the most confident *usable* one. Confidence is
+  calibrated and comparable across services by construction (§6.2's `ConfidenceReport`), so this is a
+  meaningful ordering rather than an arbitrary pick, and every individual result still reaches Kafka
+  for threat-assessment to weigh cross-sensor agreement itself (§6.3.3).
+- **Nothing usable returns `INSUFFICIENT_DATA`, not an error.** No model was in a position to judge,
+  which is a fact about the input rather than a fault.
+- **The client is deadlined *and* circuit-broken**, because the call sits inside the
+  detection-processing transaction: every millisecond is one the consumer is not reading the next
+  detection. The breaker is what turns a *failing* orchestrator from a full deadline per detection
+  into one fast rejection — the difference between a degraded tracker and a stalled one.
+- **The port returns empty, never throws.** §5.6: the track is never dropped. An unclassified track
+  is still a track, and classification is an enrichment.
+- **Classification happens last**, after the track is persisted and announced. An unavailable
+  orchestrator must not prevent a track being created.
+- **Both the synchronous call and the topic consumer exist**, and they are not redundant. `Infer`
+  returns the single best answer so the track is enriched immediately; the topic carries *every*
+  service's result, including ones that arrived after the deadline or were produced for a track this
+  instance did not ask about. §4.1.5 lists both.
+- **A classification for a terminal track is discarded.** Inference is asynchronous, so a result can
+  outlive the track it describes; reviving a lost or merged track because a late inference arrived
+  would be a real defect.
+- **A classification is not broadcast on the gRPC stream.** `TrackEventType` is the lifecycle
+  vocabulary and a classification changes no status; widening a closed enum for something the next
+  `UPDATED` already carries would be the wrong trade.
+- **`model_version` and `device` ride all the way to `track.classified.v1`.** §6.4 requires a mocked
+  result to stay distinguishable wherever it surfaces, and a classification that reached the
+  operator's screen without them would have lost exactly that.
+- **Classification can be disabled** (`correlation.ai.enabled=false`). Not a debugging convenience:
+  until an orchestrator is deployed, an instance pointed at nothing would spend a deadline per
+  detection discovering it. This makes "no AI boundary" an explicit, zero-cost configuration.
+
+**Contract amended (§5.3.2):** `TrackClassification` added to `track.proto` and set on `Track`.
+Additive, so `buf breaking` stays clean and no topic version bumps.
+
+**Defect found: a duplicate top-level key in `application-test.yml`.** A second `correlation:` block
+was appended rather than merged into the existing one, making the file unparseable and taking down
+all four track-correlation pipeline integration tests with "while constructing a mapping". Merged,
+and every YAML file touched in both modules is now validated.
+
+Verified: `mvn clean verify` — **17 modules, 607 tests, 0 failures, 0 skipped**.
+
+---
+
+**M6 is complete.** Objective met: the Track-A/Track-B decoupling works with **zero models**.
+`ai.inference.completed.v1` is produced from the mock, the breaker opens and falls back under
+injected failure, and a detection flows sensor → track → inference → classification end to end. The
+AI boundary is model-agnostic by construction and enforced by `ModelAgnosticismTest`. Integrating a
+trained model remains a configuration change: `mode: grpc` plus an `endpoint`.
+
+**Deferred from M6, with cause:**
+- **The pytest conformance suite** (`ai-services/*/tests/test_contract.py`) stays a scaffold. It is a
+  Track-B artifact that runs against a *service*, and no Python inference service exists yet; the
+  Java mock's conformance is compile-enforced instead, which is the guarantee §6.4 actually asks for
+  at this stage.
+- **`InferBatch` and `InferStream`** (§6.2) are unimplemented on both sides. Nothing calls them:
+  track-correlation infers one track at a time. Building them now would be speculative surface.
+- **`platform.config.ai.updated.v1`** — §4.1.6 lists it as consumed, but config-service does not
+  exist until M8; the admin API is the interim source of runtime version changes, exactly as the
+  protected-asset registry is for track-correlation.
+- **mTLS material** (§7.2) is a deployment concern; both gRPC surfaces bind plaintext in development
+  and the platform's certificate configuration terminates them in production.
+
 **M7 — Assessment & alerting**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.
 

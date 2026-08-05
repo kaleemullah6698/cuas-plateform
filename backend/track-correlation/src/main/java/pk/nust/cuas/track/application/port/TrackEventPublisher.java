@@ -1,6 +1,7 @@
 package pk.nust.cuas.track.application.port;
 
 import pk.nust.cuas.track.domain.model.Track;
+import pk.nust.cuas.track.domain.model.TrackClassification;
 import pk.nust.cuas.track.domain.model.TrackOutlook;
 
 /**
@@ -56,4 +57,16 @@ public interface TrackEventPublisher {
      * @param merged the absorbed track, which must name its survivor
      */
     void publishMerged(Track merged);
+
+    /**
+     * Publishes a classified track to {@code track.classified.v1} (§4.1.5).
+     *
+     * <p>Not a lifecycle transition: a classification enriches a track without changing its status,
+     * so the track continues on whatever path it was already on. The message carries the model's
+     * version and device, so a mocked result stays distinguishable wherever it surfaces (§6.4).
+     *
+     * @param track          the track, at its current state
+     * @param classification what the AI boundary concluded
+     */
+    void publishClassified(Track track, TrackClassification classification);
 }

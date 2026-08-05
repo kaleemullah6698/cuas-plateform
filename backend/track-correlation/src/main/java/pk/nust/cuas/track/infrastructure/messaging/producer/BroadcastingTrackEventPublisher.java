@@ -8,6 +8,7 @@ import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.application.port.TrackStreamBroadcaster;
 import pk.nust.cuas.track.application.port.TrackStreamBroadcaster.EventType;
 import pk.nust.cuas.track.domain.model.Track;
+import pk.nust.cuas.track.domain.model.TrackClassification;
 import pk.nust.cuas.track.domain.model.TrackOutlook;
 
 /**
@@ -63,6 +64,18 @@ public class BroadcastingTrackEventPublisher implements TrackEventPublisher {
     public void publishMerged(Track merged) {
         kafka.publishMerged(merged);
         broadcast(EventType.MERGED, merged, TrackOutlook.none());
+    }
+
+    /**
+     * A classification is published to Kafka but not broadcast on the gRPC stream.
+     *
+     * <p>{@code TrackEventType} is the lifecycle vocabulary, and a classification is not a lifecycle
+     * transition — the track's status is unchanged. Inventing a fifth event type for it would widen a
+     * closed enum for something the next {@code UPDATED} already carries.
+     */
+    @Override
+    public void publishClassified(Track track, TrackClassification classification) {
+        kafka.publishClassified(track, classification);
     }
 
     private void broadcast(EventType type, Track track, TrackOutlook outlook) {

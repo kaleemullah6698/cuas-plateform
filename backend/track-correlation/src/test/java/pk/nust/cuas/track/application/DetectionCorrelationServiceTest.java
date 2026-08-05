@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import pk.nust.cuas.commons.id.Uuidv7Generator;
 import pk.nust.cuas.detection.v1.DetectionRecord;
+import pk.nust.cuas.track.application.port.TrackClassifier;
 import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.domain.model.GeoPoint;
 import pk.nust.cuas.track.domain.model.KalmanState;
@@ -57,6 +58,8 @@ class DetectionCorrelationServiceTest {
     private TrackOutlookCalculator outlook;
     @Mock
     private HotTrackStateStore hotState;
+    @Mock
+    private TrackClassifier classifier;
 
     private final KalmanFilter kalman = new KalmanFilter(1.0, 25.0, 100, 100, 10);
 
@@ -71,6 +74,7 @@ class DetectionCorrelationServiceTest {
                 new TrackTimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(30)),
                 publisher,
                 outlook,
+                classifier,
                 new Uuidv7Generator(new Random(1)),
                 Clock.fixed(T, ZoneOffset.UTC));
     }

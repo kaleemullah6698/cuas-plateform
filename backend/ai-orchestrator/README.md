@@ -199,12 +199,34 @@ track**, hashed from `trackId` and the service id:
 - **Deterministic**, so the same track resolves the same way on every orchestrator instance and
   across restarts. A `Random` here would make the canary's results meaningless.
 
+## What track-correlation calls
+
+The orchestrator **implements the same `InferenceService` contract it consumes** (port 9085). §6.5's
+sequence is then literal: track-correlation issues `Infer`, the orchestrator fans out by modality,
+and one answer comes back. Defining a second, orchestrator-specific RPC would be another contract to
+maintain and would let the two drift.
+
+A request may route to several services, but the caller asked one question about one track, so the
+**most confident usable** result is returned. Confidence is calibrated and comparable across services
+by construction (§6.2's `ConfidenceReport`), so this is a meaningful ordering rather than an
+arbitrary pick — and every individual result still reaches Kafka, so threat-assessment can weigh
+cross-sensor agreement itself (§6.3.3). When nothing routes or every service failed, the response is
+`INSUFFICIENT_DATA` rather than an error: no model was in a position to judge, which is a fact about
+the input rather than a fault.
+
+Authorisation is transport-level (§7.2, mTLS workload identity), as on the other inter-service gRPC
+surfaces. The REST endpoints are the user-facing ones and carry `@PreAuthorize`.
+
 ## Status
 
-**M6.1 + M6.2 + M6.3 + M6.4 + M6.5 complete** — the registry, modality routing, the `InferenceProvider` port,
+**M6 complete — M6.1 through M6.6** — the registry, modality routing, the `InferenceProvider` port,
 startup-validated configuration, the mock provider, and the resilience layer. A request can be
 routed, dispatched under timeout/breaker/bulkhead, cached, answered or degraded, and published on all
 four topics.
 
-Still to come: M6.6 — the two M5 items deferred here: track-correlation's circuit-broken `Infer` call
-and the `ai.inference.completed.v1` consumer behind `track.classified.v1`.
+The boundary is finished: a detection routes by modality, is dispatched under timeout/breaker/bulkhead
+with a content-addressed cache, answers or degrades to the mock, publishes on all four topics, and
+reaches track-correlation over gRPC — with zero trained models present.
+
+**Integrating a real model remains a configuration change.** `mode: mock` → `mode: grpc` plus an
+`endpoint`, and nothing in Track A moves.

@@ -1456,6 +1456,12 @@ message Track {
 - **`closing` is a boolean, not a sign convention.** A receding track reports `closing = false` with the present separation, rather than a negative `time_to_cpa_s`. A consumer that ignored a sign would read a receding track as an imminent one; a consumer that ignores an unset boolean reads `false`, which is the safe direction.
 - **Prediction is extrapolation, and the contract does not promise otherwise.** `predicted_trajectory` is dead reckoning under the filter's constant-acceleration model. §6.3.5 anticipates a learned `trajectory-predictor` replacing it; that service would populate the same field, so no consumer changes.
 - **Position reuses `detection.v1.GeoPosition`.** A track's position is the same canonical geodetic type a detection carries; a parallel track-specific position type would be a second source of truth for the same concept.
+- **`TrackClassification` is set only on `track.classified.v1`.** A track is published long before
+  anything has judged it, so the field is unset on the other track topics. It carries only the *top*
+  prediction — a track describes itself with one label, and the full inference is on
+  `ai.inference.completed.v1` for consumers that want every ranked prediction. `model_version` and
+  `device` are carried deliberately: §6.4 requires a mocked result to stay distinguishable wherever
+  it surfaces, and a classification reaching the operator's screen without them would have lost that.
 - **Every addition since M5.1 is additive**, and therefore a minor version under §5.5: new fields on `Track`, new messages, and new enum values. No topic version bumps and no consumer breaks. The one non-additive change is documentary — `observed_at` was described in M5.1 as the latest detection's ingest time, which is what `last_seen` now carries; no consumer existed at the time.
 
 ## 5.4 Serialization & Schema Registry

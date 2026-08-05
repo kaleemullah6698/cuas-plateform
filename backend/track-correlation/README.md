@@ -103,9 +103,26 @@ undetected drone (§5.6). The TTL is the lost timeout, so no stale entry can out
 which its track could still have been a candidate. Set `correlation.hot-state.enabled=false` to run
 with no Redis at all — the no-op store is a supported configuration, not a test double.
 
-**Deferred to M6 with cause.** The circuit-broken gRPC call to `ai-orchestrator` and the
-`ai.inference.completed.v1` consumer behind `track.classified.v1`: that service does not exist until
-M6, and this milestone's own dependency line already reads "M4, and M6's contract".
+**The AI boundary is the only synchronous call this service makes, and it never blocks the tracker.**
+`TrackClassifier` is a port; its adapter calls the orchestrator's `Infer` with a gRPC deadline behind
+a circuit breaker. It sits inside the detection-processing transaction, so every millisecond is one
+the consumer is not reading the next detection — the breaker is what turns a *failing* orchestrator
+from a full deadline per detection into one fast rejection. The port returns empty rather than
+throwing: §5.6's rule is that a track is never dropped, and an unclassified track is still a track.
+Classification happens **last**, after the track is persisted and announced, so an unavailable
+orchestrator cannot prevent a track being created. Set `correlation.ai.enabled=false` to run with no
+AI boundary at all.
+
+**Both the call and the topic consumer exist, and they differ.** `Infer` returns the single best
+answer so a track is enriched immediately; `ai.inference.completed.v1` carries *every* service's
+result, including ones that arrived after the deadline or were produced for a track this instance did
+not ask about. A classification for an unknown or terminal track is discarded — inference is
+asynchronous, and reviving a lost or merged track because a late result arrived would be a real
+defect.
+
+`track.classified.v1` carries `model_version` and `device`, so a mocked result stays distinguishable
+(§6.4). It is **not** broadcast on the gRPC stream: `TrackEventType` is the lifecycle vocabulary and
+a classification changes no status.
 
 **Correlation is idempotent.** A detection is associated to a track at most once (a unique
 `(track_id, detection_id)` constraint, and a `detectionAlreadyAssociated` guard before processing),
@@ -171,3 +188,6 @@ internal stream would create a second, weaker path to data the gateway already g
 | `correlation.hot-state.enabled` | `true` | Redis hot in-flight state; `false` reads candidates from PostgreSQL every time |
 | `spring.data.redis.*` | `localhost:6379` | Hot-state connection; §7.2 requires TLS + AUTH in production |
 | `grpc.server.port` | `9084` | `TrackService.SubscribeTracks` listener |
+| `correlation.ai.enabled` | `true` | The synchronous call to `ai-orchestrator`; `false` leaves tracks unclassified |
+| `correlation.ai.endpoint` | `localhost:9085` | The orchestrator's `Infer` endpoint |
+| `correlation.ai.timeout` | `PT0.5S` | Deadline for one classification call |
