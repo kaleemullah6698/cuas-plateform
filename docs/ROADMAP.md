@@ -319,6 +319,83 @@ PostgreSQL + Kafka (Testcontainers).
 CPA, cross-sensor fusion, coasting/lost transitions, the AI-orchestrator gRPC call, the Redis
 hot-state cache and concurrent per-sector processing, and the gRPC `SubscribeTracks` stream.
 
+**M5.2 — Kalman state & miss-timeout lifecycle** — ✅ **Complete** — 58 tests (+27)
+The motion model and the second half of the lifecycle. Delivered: a constant-acceleration,
+three-state (position, velocity, acceleration) Kalman estimator per axis of a local ENU frame
+anchored at the track's first position; **predict-then-gate** association — each candidate is
+offered at the position its own filter predicts for the detection's time, not its last fix;
+confirmed → `COASTING` (predicted forward, republished on `track.updated.v1`) and open → `LOST`
+(terminal, published on `track.lost.v1`) on miss timeouts; revival of a coasting track by a
+detection; `V2__add_kalman_state.sql` persisting `observed_at` + the serialised filter state, so the
+filter survives restarts rather than starting cold.
+
+**The separate time gate was removed, not lost.** Association is now purely spatial and the temporal
+bound is applied by the candidate query, which never offers a track older than the lost timeout.
+That keeps `AssociationPolicy` a pure function and removes a gate that the motion model made
+redundant.
+
+**Defect found and fixed during this sub-milestone.** A track carries two clocks that diverge while
+coasting: `lastDetectionAt` (what the miss timeouts count from) and `estimate().observedAt()` (what
+the filter state is valid for). `associate()`, `coast()`, and the candidate-prediction loop all
+measured the Kalman `dt` from `lastDetectionAt`, which **re-advanced a coasting track's filter over
+an interval it had already covered** — a track coasting 9 s then re-acquired received ~19 s of
+prediction for 10 s of elapsed time, corrupting position, velocity and acceleration on every
+revival and skewing the gate that decides whether the revival happens at all. It was invisible
+because the existing revival test asserted only on `status`, never on kinematics. Fixed in all
+three places and pinned by a domain test that coasts a moving track to T+20, then feeds a
+measurement at exactly T+20 at exactly the predicted position — a zero-length step onto a zero
+innovation, so the estimate must not move.
+
+**Two defects in the interrupted state of this sub-milestone**, both build-breaking and both fixed:
+a missing `TestPropertySource` import, and a `TrackLifecycleIntegrationTest` that the pipeline
+test's comment referenced but which had never been written.
+
+Verified: `mvn clean verify` — **17 modules, 379 tests** (+27), 0 failures. The new
+`TrackLifecycleIntegrationTest` drives coast → lost and the revival against real PostgreSQL + Kafka
+(Testcontainers).
+
+**M5.3 — Contracts & doc amendments for the rest of M5** — ✅ **Complete** — no production code
+The architecture-review gate for the remainder of M5, following the M4.0 precedent: the source of
+truth is amended *before* the service code that depends on it.
+- **§5.2 catalogue (two-way inconsistency).** §4.1.5 listed `track.merged.v1` and
+  `track.classified.v1` under *Publishes*, but neither appeared in the §5.2 topic catalogue or in
+  `create-topics.sh`. Both are now catalogued (key `trackId`, 6 partitions, 30 d, delete) and
+  created. The script's counts are computed from the arrays, so no hardcoded total moved.
+- **§5.3.2 track schema.** §5.3.2 promised the estimator state, trajectory prediction and CPA
+  fields "added in M5.2" but never defined them. Now defined: `KinematicEstimate` (vertical speed,
+  acceleration, 1σ position and velocity uncertainty), `PredictedPoint`, `ClosestPointOfApproach`,
+  `merged_into_track_id`, and `TRACK_STATUS_MERGED`. **`buf lint` clean, `buf breaking` clean** —
+  every change is additive and therefore a minor version under §5.5, so no topic version bumps.
+- **`observed_at` / `last_seen` documented as two clocks.** The M5.1 text described `observed_at` as
+  the latest detection's ingest time, which is what `last_seen` now carries. No consumer existed, so
+  the correction costs nothing — but it is the contract-level statement of the defect above.
+- **The merge rule, previously unspecified.** "Cross-sensor duplicate elimination" was named once in
+  §4.1.5 and defined nowhere. Now specified in §4.1.5: both tracks `CONFIRMED`, same sector,
+  **disjoint sensor sets**, estimates within the merge gate for **N consecutive sweeps**; the older
+  track (UUIDv7 ordering) survives. The N-sweep requirement exists because a false merge makes one
+  of two real threats disappear, which is the more damaging error than a missed merge.
+- **Protected assets sourced through a port.** §4.1.12 assigns asset geometry to the Configuration
+  Service, which does not exist until M8. §4.1.5 now records that the registry is a domain port
+  (`ProtectedAssetRegistry`) with a configuration-backed adapter today and a config-service-backed
+  adapter at M8 — an infrastructure swap with no domain, CPA, or contract change. Database-per-service
+  is never violated at any stage. Same just-in-time precedent as M4.0's sensor registry.
+
+**Technical debt recorded, not silently fixed — §5.7 delivery semantics.** §5.7 specifies
+*effectively-once* for `Ingestion → normalized` and `Correlation → track events` via "Kafka
+transactions (`read_committed`); offsets committed inside the same transaction as output". **No
+Kafka transactions exist anywhere in the platform** — a repo-wide search for `isolation`,
+`transactionIdPrefix` and `KafkaTransactionManager` returns nothing. Both services instead use an
+idempotent producer plus a dedup guard, which closes the duplicate-on-replay path but leaves the
+dual-write window open: a Kafka publish that succeeds followed by a database rollback emits a track
+event with no track behind it. This dates from M4, spans two services and two milestones, and is a
+change to a delivery guarantee rather than a bug fix — scheduled for the M8 hardening pass.
+
+**Still open in M5:** M5.4 CPA + trajectory prediction, M5.5 cross-sensor merge, M5.6 Redis
+hot-state, M5.7 gRPC `SubscribeTracks`. **Deferred to M6 with cause:** the circuit-broken gRPC
+`Infer` call to `ai-orchestrator` and the `ai.inference.completed.v1` consumer that produces
+`track.classified.v1` — `ai-orchestrator` is pure scaffold until M6, and this milestone's own
+dependency line already reads "M4, **and M6's contract**".
+
 **M6 — AI boundary**
 Objective: the Track-A/Track-B decoupling, working with zero models. Services: `ai-orchestrator`, `mock-inference-provider`. Deliverables: modality routing, per-service timeout + Resilience4j breaker + bulkhead, content-hash cache, canary split, mock fallback publishing `ai.service.degraded.v1`; deterministic latency-realistic failure-injecting mock badged `0.0.0-mock`. Dependencies: M1. Expected output: `ai.inference.completed.v1` produced from mock; breaker opens and falls back under injected failure. Testing: the shared conformance suite (pytest) against the mock; breaker/bulkhead unit tests; a fallback integration test.
 

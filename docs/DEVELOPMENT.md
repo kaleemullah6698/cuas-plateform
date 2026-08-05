@@ -69,6 +69,9 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | track-correlation integration tests | ✅ Executed | 4 against real PostgreSQL 17 + Kafka (Testcontainers) — a normalised detection becomes a tentative track published on `track.created.v1` and persisted; three nearby detections form one confirmed track with 3 states + 2 lifecycle events; a distant detection starts a separate track; the `GET /tracks` read API returns the track with `track:read`, 401 unauthenticated, 403 without the permission, 404 for an unknown id (MockMvc + injected JWT) |
 | `Uuidv7Generator` → platform-commons | ✅ Refactored | Promoted from sensor-ingestion to `pk.nust.cuas.commons.id` and reused by track-correlation; the duplicate and its test moved, not copied |
 | Testcontainers integration tests | ✅ Executed | 44 against real PostgreSQL 17 (audit, user, auth) — hash chain, DB-enforced immutability, concurrent append, self-escalation refusal, refresh-token reuse detection, fail-closed audit rollback. 46 against real Redis 7.4 (gateway) — token-bucket atomicity under concurrency, refill, fail-closed on an unreachable store, revocation propagation, the section 7.8 limits end to end |
+| `mvn clean verify` (M5.2 + M5.3) | ✅ Executed | **17 modules, 379 tests** (+27), 0 failures — track-correlation: 52 unit + 6 Testcontainers integration |
+| `TrackLifecycleIntegrationTest` | ✅ Executed | 2 against real PostgreSQL 17 + Kafka — a confirmed track unfed past the coast timeout is predicted forward to `COASTING` on `track.updated.v1`, then to `LOST` on `track.lost.v1`, with the full ordered `->TENTATIVE / TENTATIVE->CONFIRMED / CONFIRMED->COASTING / COASTING->LOST` chain persisted; and a detection reaching a coasting track revives it to `CONFIRMED` on the same `trackId` rather than starting a second track. Timeouts are widened via `@TestPropertySource` so the assertions observe ordered transitions rather than race Kafka delivery |
+| `buf lint` / `buf breaking` / `buf generate` (M5.3) | ✅ Executed | `track.proto` amended with `KinematicEstimate`, `PredictedPoint`, `ClosestPointOfApproach`, `merged_into_track_id`, `TRACK_STATUS_MERGED` — lint clean, **breaking clean** (additive only, so a minor version under §5.2/§5.5 with no topic bump); Java/Python/TS regenerated |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29
@@ -84,7 +87,21 @@ setting the env var alone does not fix it.
 
 ### Toolchain note
 
-The machine used for M0 had no system JDK/Maven, so a **portable** Temurin JDK 21 and Maven 3.9.9 were unpacked under `Research Internship/.toolchain/` (outside the repo, git-ignored). To reproduce the M0 build there, point `JAVA_HOME` at that JDK and prepend both `bin` directories to `PATH`. A permanent system install of JDK 21 + Maven is the recommended setup and removes the need for this.
+The machine used for M0 had no system JDK/Maven, so a **portable** Temurin JDK 21, Maven 3.9.9 and `buf` were unpacked under `Research Internship/.toolchain/` (outside the repo, git-ignored). A permanent system install of JDK 21 + Maven is the recommended setup and removes the need for this.
+
+**None of the three is on `PATH` in a fresh shell**, and `buf` is needed by the `contracts` module's
+`buf-generate` step, so a build that omits it fails at module 2 of 17. Export all three:
+
+```bash
+TC="$(pwd)/../.toolchain"          # from the repo root
+export JAVA_HOME="$TC/jdk-21.0.11+10"
+export PATH="$JAVA_HOME/bin:$TC/apache-maven-3.9.9/bin:$TC:$PATH"
+```
+
+> **Never pipe `mvn` into `tail`/`head` to shorten the output.** The pipeline's exit status is the
+> *last* command's, so a missing `mvn` — or any build failure — is reported as exit 0 and reads as a
+> green build. Redirect the full log to a file and grep it for `BUILD SUCCESS`. A stale
+> `target/surefire-reports` from a previous run will otherwise supply a plausible, wrong test count.
 
 Docker is a hard prerequisite for anything beyond a single-module `mvn verify` (the infra profile, integration tests using Testcontainers). It was not available in the M0 environment, so infra bring-up and Testcontainers-based integration tests are **specified but not yet observed** — the first milestone that runs on a Docker-equipped machine will verify them.
 

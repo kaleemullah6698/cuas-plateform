@@ -1008,6 +1008,10 @@ The raw topic appears on both lines by design. The intake adapters (REST `POST /
 | **Consumes** | `sensor.detection.normalized.v1`, `ai.inference.completed.v1` |
 | **Scaling** | **Stateful.** Partitioned by geographic sector; each instance owns a sector exclusively. Vertical first, then sector sharding. This is the hardest service to scale and the correct place to spend design effort. |
 
+**Cross-sensor duplicate elimination — the merge rule.** Two tracks merge when *all* of the following hold: both are `CONFIRMED`; both are in the same sector; their contributing sensor sets are **disjoint** (the same sensor reporting twice is a duplicate detection, which association already handles — a merge is specifically the case of two sensors having independently opened a track on one object); and their Kalman-estimated positions stay within the merge gate for **N consecutive sweeps**. The survivor is the **older** track, which UUIDv7's time ordering makes unambiguous; the younger becomes `MERGED` with `merged_into_track_id` set, and `track.merged.v1` carries it so a consumer holding the younger id can re-key onto the survivor. The N-sweep requirement is what keeps two drones in close formation from being collapsed into one — a single-sweep coincidence is not evidence of identity, and a false merge is the more damaging error, since it makes one of two real threats disappear.
+
+**Protected assets.** §4.1.12 assigns protected-asset geometry to the Configuration Service. Until that service exists (M8), the asset registry is a domain **port** (`ProtectedAssetRegistry`) whose adapter reads a static list from this service's own configuration. Swapping in the config-service-backed adapter is an infrastructure change only — no domain, CPA, or contract change — which is the point of declaring it as a port. No service reads another's tables at any stage.
+
 ### 4.1.6 AI Orchestrator Service
 
 | | |
@@ -1208,6 +1212,8 @@ flowchart LR
 | `track.created.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Orchestrator, Threat, Audit, Gateway |
 | `track.updated.v1` | `trackId` | 6 | 7 d | delete | Track Correlation | Orchestrator, Threat, Gateway, Reporting |
 | `track.lost.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Threat, Alert, Audit |
+| `track.merged.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Threat, Alert, Gateway, Audit |
+| `track.classified.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Threat, Gateway, Audit |
 | `track.state.snapshot.v1` | `trackId` | 6 | ∞ | **compact** | Track Correlation | Gateway (resnapshot) |
 | `ai.inference.requested.v1` | `trackId` | 6 | 24 h | delete | Orchestrator | Reporting |
 | `ai.inference.completed.v1` | `trackId` | 6 | 7 d | delete | Orchestrator | Threat, Track Correlation, Audit |
@@ -1374,7 +1380,7 @@ message SensorHealth {
 
 ### 5.3.2 Track schema
 
-Section 4.1.5 names `track.created.v1` and `track.updated.v1` but does not define their fields. The track schema is defined in `contracts/proto/track.proto` (package `pk.nust.cuas.track.v1`) and documented here. Both topics carry the `Track` message directly; the topic name distinguishes birth from update.
+Section 4.1.5 names the track events but does not define their fields. The track schema is defined in `contracts/proto/track.proto` (package `pk.nust.cuas.track.v1`) and documented here. `track.created.v1`, `track.updated.v1`, `track.lost.v1`, `track.merged.v1` and `track.classified.v1` all carry the `Track` message directly; the topic name distinguishes birth from update, loss, merge, and classification.
 
 ```protobuf
 syntax = "proto3";
@@ -1383,36 +1389,73 @@ package pk.nust.cuas.track.v1;
 import "google/protobuf/timestamp.proto";
 import "detection.proto";
 
-// Lifecycle of §4.1.5: tentative → confirmed → coasting → lost.
+// Lifecycle of §4.1.5: tentative → confirmed → coasting → lost, plus merged.
 enum TrackStatus {
   TRACK_STATUS_UNSPECIFIED = 0;
   TRACK_STATUS_TENTATIVE   = 1;
   TRACK_STATUS_CONFIRMED   = 2;
-  TRACK_STATUS_COASTING    = 3;  // reserved for M5.2
-  TRACK_STATUS_LOST        = 4;  // reserved for M5.2
+  TRACK_STATUS_COASTING    = 3;
+  TRACK_STATUS_LOST        = 4;
+  TRACK_STATUS_MERGED      = 5;
+}
+
+// The Kalman-estimated state's uncertainty — how well the filter believes its own estimate.
+message KinematicEstimate {
+  double vertical_speed_ms       = 1;
+  double acceleration_ms2        = 2;
+  double position_uncertainty_m  = 3;   // 1σ
+  double velocity_uncertainty_ms = 4;   // 1σ
+}
+
+// One point on the predicted trajectory; uncertainty grows with the horizon.
+message PredictedPoint {
+  pk.nust.cuas.detection.v1.GeoPosition position = 1;
+  google.protobuf.Timestamp at            = 2;
+  double                    uncertainty_m = 3;
+}
+
+// CPA against one protected asset — rendered as "CPA 640 m in 00:47" (§2.4.2).
+message ClosestPointOfApproach {
+  string asset_id      = 1;
+  string asset_name    = 2;
+  double distance_m    = 3;
+  double time_to_cpa_s = 4;
+  google.protobuf.Timestamp at = 5;
+  bool   closing       = 6;   // false when already receding
 }
 
 message Track {
   string      track_id     = 1;   // UUIDv7
   string      sector_id    = 2;   // geographic sector (§4.1.5)
   TrackStatus status       = 3;
-  pk.nust.cuas.detection.v1.GeoPosition position = 10;  // latest observed state
+  string      merged_into_track_id = 4;   // set only when status is MERGED
+
+  pk.nust.cuas.detection.v1.GeoPosition position = 10;  // Kalman estimate
   double      speed_ms     = 11;
   double      heading_deg  = 12;
-  google.protobuf.Timestamp observed_at = 13;
+  google.protobuf.Timestamp observed_at = 13;   // the time this estimate is valid for
+  KinematicEstimate estimate = 14;
+
   google.protobuf.Timestamp first_seen = 20;
-  google.protobuf.Timestamp last_seen  = 21;
+  google.protobuf.Timestamp last_seen  = 21;   // ingest time of the latest associated detection
   uint32      detection_count   = 22;
   string      last_detection_id = 23;
+
   string      schema_version = 30;
   string      correlation_id = 31;
+
+  repeated PredictedPoint predicted_trajectory = 40;
+  ClosestPointOfApproach  nearest_asset_cpa    = 41;
 }
 ```
 
 **Design decisions worth defending in review:**
-- **The `Track` message is the latest observed state, not the full estimator state.** In the M5.1 foundation the position and velocity are those of the most recent associated detection; the Kalman-estimated state (with acceleration and covariance), trajectory prediction, and CPA are added in M5.2, as new fields — a backward-compatible change (§5.4).
-- **The lifecycle enum is declared whole but only partly emitted.** `COASTING` and `LOST` are reserved so the closed lifecycle vocabulary is fixed and stable from the start; M5.1 emits only `TENTATIVE` and `CONFIRMED` because it does not yet compute the coasting/lost transitions.
+- **`observed_at` and `last_seen` are different clocks, and they diverge while coasting.** `last_seen` is the ingest time of the latest associated detection and is what the miss timeouts count from; `observed_at` is the time the current estimate is valid for, which a coasting prediction advances past `last_seen`. Any code that advances the filter must measure elapsed time from `observed_at` — measuring from `last_seen` re-advances a coasting track's filter over an interval it has already covered. This is a real defect that was found and fixed during M5.2.
+- **Uncertainty is published, not just the estimate.** `position_uncertainty_m` is what lets the dashboard draw an honest confidence ellipse (§2.5.6) and lets threat-assessment (§6.3.4) report a missing or weak factor rather than substituting a default.
+- **`closing` is a boolean, not a sign convention.** A receding track reports `closing = false` with the present separation, rather than a negative `time_to_cpa_s`. A consumer that ignored a sign would read a receding track as an imminent one; a consumer that ignores an unset boolean reads `false`, which is the safe direction.
+- **Prediction is extrapolation, and the contract does not promise otherwise.** `predicted_trajectory` is dead reckoning under the filter's constant-acceleration model. §6.3.5 anticipates a learned `trajectory-predictor` replacing it; that service would populate the same field, so no consumer changes.
 - **Position reuses `detection.v1.GeoPosition`.** A track's position is the same canonical geodetic type a detection carries; a parallel track-specific position type would be a second source of truth for the same concept.
+- **Every addition since M5.1 is additive**, and therefore a minor version under §5.5: new fields on `Track`, new messages, and new enum values. No topic version bumps and no consumer breaks. The one non-additive change is documentary — `observed_at` was described in M5.1 as the latest detection's ingest time, which is what `last_seen` now carries; no consumer existed at the time.
 
 ## 5.4 Serialization & Schema Registry
 

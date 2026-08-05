@@ -2,14 +2,14 @@ syntax = "proto3";
 
 // Track schema — ARCHITECTURE.md sections 4.1.5 and 5.3.2.
 //
-// The shape of a track as it is published on track.created.v1 and track.updated.v1. Both topics
-// carry the Track message directly; the topic name distinguishes birth from update. Section 4.1.5
-// names the track events but does not define their fields, so the minimum needed to represent a
-// track is defined here and ARCHITECTURE.md section 5.3.2 is amended to match.
+// The shape of a track as it is published on track.created.v1, track.updated.v1, track.lost.v1 and
+// track.merged.v1. Each topic carries the Track message directly; the topic name distinguishes
+// birth from update, loss, and merge. Section 4.1.5 names the track events but does not define
+// their fields, so they are defined here and ARCHITECTURE.md section 5.3.2 is amended to match.
 //
-// This is the M5.1 foundation: identity, sector, lifecycle status, and the latest observed state.
-// The Kalman-estimated velocity/acceleration, trajectory prediction, and CPA fields are added when
-// their behaviour is built (M5.2+); adding fields is backward-compatible (section 5.4).
+// Field numbers are grouped by concern with gaps between the groups, so a later addition lands
+// beside what it belongs with instead of at the end. Every addition here is additive and therefore
+// a minor version under section 5.5 — no consumer breaks and no topic version bumps.
 package pk.nust.cuas.track.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -19,15 +19,59 @@ option java_multiple_files = true;
 option java_package = "pk.nust.cuas.track.v1";
 option java_outer_classname = "TrackProto";
 
-// The lifecycle of a track (section 4.1.5: tentative → confirmed → coasting → lost). M5.1 emits
-// only TENTATIVE and CONFIRMED; COASTING and LOST are declared so the closed lifecycle is complete
-// and stable, but are reserved until the coasting/lost transitions are built (M5.2).
+// The lifecycle of a track (section 4.1.5: tentative → confirmed → coasting → lost, plus merged).
+// A closed vocabulary: LOST and MERGED are both terminal, and a track in either accepts no further
+// detections.
 enum TrackStatus {
   TRACK_STATUS_UNSPECIFIED = 0;
   TRACK_STATUS_TENTATIVE   = 1;
   TRACK_STATUS_CONFIRMED   = 2;
-  TRACK_STATUS_COASTING    = 3;  // reserved for M5.2
-  TRACK_STATUS_LOST        = 4;  // reserved for M5.2
+  TRACK_STATUS_COASTING    = 3;
+  TRACK_STATUS_LOST        = 4;
+  TRACK_STATUS_MERGED      = 5;  // absorbed into another track; see Track.merged_into_track_id
+}
+
+// The Kalman-estimated kinematic state (section 4.1.5: position, velocity, acceleration).
+//
+// Separate from the Track's observed position/speed/heading because the two answer different
+// questions: those are what the estimator currently believes, this is how well it believes it. The
+// uncertainties are the standard deviations implied by the filter covariance, in metres and m/s, and
+// are what the dashboard renders as the confidence ellipse (section 2.5.6).
+message KinematicEstimate {
+  double vertical_speed_ms      = 1;   // positive up
+  double acceleration_ms2       = 2;   // magnitude of the horizontal acceleration estimate
+  double position_uncertainty_m = 3;   // 1σ horizontal position error
+  double velocity_uncertainty_ms = 4;  // 1σ horizontal velocity error
+}
+
+// One point on the predicted trajectory — where the filter expects the track to be, and when.
+//
+// Prediction is dead reckoning under the same constant-acceleration model the filter uses, so
+// uncertainty grows with the horizon; uncertainty_m is what makes a far-horizon point honest rather
+// than authoritative. Section 6.3.5 anticipates a learned trajectory-predictor replacing this
+// extrapolation later — it would fill the same field, so no consumer changes.
+message PredictedPoint {
+  pk.nust.cuas.detection.v1.GeoPosition position = 1;
+  google.protobuf.Timestamp at            = 2;
+  double                    uncertainty_m = 3;  // 1σ position error at this horizon
+}
+
+// Closest point of approach between a track and one protected asset (section 4.1.5).
+//
+// This is the number the operator acts on — rendered as "CPA 640 m in 00:47" in section 2.4.2 — and
+// one of threat-assessment's scoring inputs (section 6.3.4). It is a pure kinematic projection under
+// the current estimate, not a prediction of intent.
+message ClosestPointOfApproach {
+  string asset_id      = 1;
+  string asset_name    = 2;
+  double distance_m    = 3;   // separation at the closest point
+  double time_to_cpa_s = 4;   // seconds from observed_at until that point
+  google.protobuf.Timestamp at = 5;  // when the closest point occurs
+
+  // False when the track is already receding — distance_m is then the present separation and
+  // time_to_cpa_s is zero. Reported explicitly rather than encoded as a negative time, because a
+  // consumer that ignored the sign would read a receding track as an imminent one.
+  bool closing = 6;
 }
 
 message Track {
@@ -35,18 +79,28 @@ message Track {
   string      sector_id    = 2;   // geographic sector the track belongs to (section 4.1.5)
   TrackStatus status       = 3;
 
-  // Latest observed kinematic state. In M5.1 this is the position and velocity of the most recent
-  // associated detection; it becomes the Kalman-estimated state in M5.2.
+  // The track this one was absorbed into. Set only when status is MERGED; the surviving track is
+  // always the older of the pair, which UUIDv7's time ordering makes unambiguous.
+  string merged_into_track_id = 4;
+
+  // Current estimated kinematic state — the Kalman estimate, not the raw detection.
   pk.nust.cuas.detection.v1.GeoPosition position = 10;
   double      speed_ms     = 11;
   double      heading_deg  = 12;
-  google.protobuf.Timestamp observed_at = 13;  // ingest time of the latest associated detection
+  google.protobuf.Timestamp observed_at = 13;  // the time this estimate is valid for
+  KinematicEstimate estimate = 14;
 
   google.protobuf.Timestamp first_seen = 20;
-  google.protobuf.Timestamp last_seen  = 21;
+  google.protobuf.Timestamp last_seen  = 21;  // ingest time of the latest associated detection
   uint32      detection_count   = 22;
   string      last_detection_id = 23;
 
   string      schema_version = 30;  // e.g. "1.0.0"
   string      correlation_id = 31;  // end-to-end trace, carried from the triggering detection
+
+  // Where the track is going, and what it is closing on. Both are derived state, recomputed on every
+  // update; the trajectory is empty for a track too young to extrapolate, and the CPA is unset when
+  // no protected asset is configured or none is reachable within the prediction horizon.
+  repeated PredictedPoint        predicted_trajectory = 40;
+  ClosestPointOfApproach         nearest_asset_cpa    = 41;
 }

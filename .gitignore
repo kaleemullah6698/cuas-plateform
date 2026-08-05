@@ -61,3 +61,6 @@ logs/
 # ── Local portable toolchain (never committed) ──
 /.toolchain/
 ../.toolchain/
+
+# Claude Code local permission grants — machine-specific, not shared
+.claude/settings.local.json

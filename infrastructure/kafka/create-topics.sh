@@ -36,6 +36,8 @@ PRIMARY_TOPICS=(
   "track.created.v1                  6 ${R_30D} delete"
   "track.updated.v1                  6 ${R_7D}  delete"
   "track.lost.v1                     6 ${R_30D} delete"
+  "track.merged.v1                   6 ${R_30D} delete"
+  "track.classified.v1               6 ${R_30D} delete"
   "track.state.snapshot.v1           6 ${R_INF} compact"
   "ai.inference.requested.v1         6 ${R_24H} delete"
   "ai.inference.completed.v1         6 ${R_7D}  delete"
