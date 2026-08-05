@@ -33,7 +33,7 @@ class MockInferenceProviderTest {
     }
 
     private static AiServiceDescriptor service(String id, Optional<String> pinnedVersion) {
-        return new AiServiceDescriptor(new ServiceId(id), Set.of(Modality.RF), ProviderMode.MOCK,
+        return AiServiceDescriptor.of(new ServiceId(id), Set.of(Modality.RF), ProviderMode.MOCK,
                 Optional.empty(), Duration.ofMillis(100), pinnedVersion, 32);
     }
 

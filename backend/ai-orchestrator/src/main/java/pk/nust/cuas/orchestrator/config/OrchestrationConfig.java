@@ -15,6 +15,7 @@ import pk.nust.cuas.orchestrator.domain.model.AiServiceDescriptor;
 import pk.nust.cuas.orchestrator.domain.service.AiServiceRegistry;
 import pk.nust.cuas.orchestrator.infrastructure.cache.NoInferenceCache;
 import pk.nust.cuas.orchestrator.infrastructure.cache.RedisInferenceCache;
+import pk.nust.cuas.orchestrator.infrastructure.provider.GrpcInferenceProvider;
 
 /**
  * Wires provider selection and the inference cache (ARCHITECTURE.md sections 4.1.6, 6.4).
@@ -24,6 +25,23 @@ import pk.nust.cuas.orchestrator.infrastructure.cache.RedisInferenceCache;
 public class OrchestrationConfig {
 
     private static final Logger log = LoggerFactory.getLogger(OrchestrationConfig.class);
+
+    /**
+     * The gRPC client for real AI services (section 6.2).
+     *
+     * <p>Unconditional, like the mock: one instance serves every {@code mode: grpc} service, with
+     * channels created per endpoint on demand. A bean per model would be the code change §6.1
+     * forbids — and would mean a newly trained model could not be added without a redeploy, which is
+     * the opposite of what §6.4's config switch promises.
+     *
+     * <p>{@code destroyMethod} closes the cached channels on shutdown so connections are not leaked.
+     */
+    @Bean(destroyMethod = "close")
+    public GrpcInferenceProvider grpcInferenceProvider(
+            @org.springframework.beans.factory.annotation.Value("${ai.grpc.plaintext:true}")
+            boolean plaintext) {
+        return new GrpcInferenceProvider(plaintext);
+    }
 
     /**
      * Binds every available provider by mode, then checks that each <em>configured</em> service has

@@ -24,6 +24,10 @@ import java.util.Set;
  *                      rollback lever of section 6.6
  * @param maxConcurrent the bulkhead permit count, bounding concurrency so a burst never overwhelms
  *                      a GPU (section 4.1.6)
+ * @param canaryVersion      a version to try on a share of traffic, or empty for no canary
+ *                           (section 6.6)
+ * @param canaryPercentage   the share of *tracks* that go to the canary, 0-100. Tracks, not calls:
+ *                           see {@link pk.nust.cuas.orchestrator.domain.service.CanaryPolicy}
  */
 public record AiServiceDescriptor(
         ServiceId id,
@@ -32,7 +36,9 @@ public record AiServiceDescriptor(
         Optional<String> endpoint,
         Duration timeout,
         Optional<String> modelVersion,
-        int maxConcurrent) {
+        int maxConcurrent,
+        Optional<String> canaryVersion,
+        int canaryPercentage) {
 
     public AiServiceDescriptor {
         if (id == null) {
@@ -45,8 +51,17 @@ public record AiServiceDescriptor(
         if (mode == null) {
             throw new IllegalArgumentException("service " + id + " must declare a provider mode");
         }
-        if (endpoint == null || modelVersion == null) {
+        if (endpoint == null || modelVersion == null || canaryVersion == null) {
             throw new IllegalArgumentException("use Optional.empty(), never null");
+        }
+        if (canaryPercentage < 0 || canaryPercentage > 100) {
+            throw new IllegalArgumentException(
+                    "service " + id + " canary percentage must be 0-100, was " + canaryPercentage);
+        }
+        // A canary share with no version to send it to would silently route traffic nowhere new.
+        if (canaryPercentage > 0 && canaryVersion.isEmpty()) {
+            throw new IllegalArgumentException("service " + id
+                    + " declares a canary percentage but no canary version");
         }
         if (timeout == null || timeout.isNegative() || timeout.isZero()) {
             throw new IllegalArgumentException("service " + id + " needs a positive timeout, was " + timeout);
@@ -69,5 +84,13 @@ public record AiServiceDescriptor(
      */
     public boolean accepts(Modality modality) {
         return modalities.contains(modality);
+    }
+
+    /** A descriptor with no canary — the ordinary case, and what most tests want. */
+    public static AiServiceDescriptor of(ServiceId id, Set<Modality> modalities, ProviderMode mode,
+                                         Optional<String> endpoint, java.time.Duration timeout,
+                                         Optional<String> modelVersion, int maxConcurrent) {
+        return new AiServiceDescriptor(id, modalities, mode, endpoint, timeout, modelVersion,
+                maxConcurrent, Optional.empty(), 0);
     }
 }

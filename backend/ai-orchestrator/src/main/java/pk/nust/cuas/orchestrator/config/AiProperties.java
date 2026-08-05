@@ -47,6 +47,8 @@ public record AiProperties(@DefaultValue Map<String, Service> services) {
      * @param modelVersion  a version to pin, or blank for the service default (sections 6.6 canary
      *                      and rollback)
      * @param maxConcurrent bulkhead permits, bounding concurrency so a burst never overwhelms a GPU
+     * @param canaryVersion    a version to try on a share of traffic, blank for none (section 6.6)
+     * @param canaryPercentage the share of *tracks* on the canary, 0-100
      */
     public record Service(
             List<String> modalities,
@@ -54,6 +56,8 @@ public record AiProperties(@DefaultValue Map<String, Service> services) {
             @DefaultValue("") String endpoint,
             @DefaultValue("PT1S") Duration timeout,
             @DefaultValue("") String modelVersion,
-            @DefaultValue("32") int maxConcurrent) {
+            @DefaultValue("32") int maxConcurrent,
+            @DefaultValue("") String canaryVersion,
+            @DefaultValue("0") int canaryPercentage) {
     }
 }

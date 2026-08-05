@@ -53,7 +53,7 @@ class ResilientInferenceDispatcherTest {
     }
 
     private static AiServiceDescriptor service(Duration timeout, int maxConcurrent) {
-        return new AiServiceDescriptor(new ServiceId(SERVICE), Set.of(Modality.RF), ProviderMode.GRPC,
+        return AiServiceDescriptor.of(new ServiceId(SERVICE), Set.of(Modality.RF), ProviderMode.GRPC,
                 Optional.of("host:9001"), timeout, Optional.empty(), maxConcurrent);
     }
 
@@ -348,7 +348,7 @@ class ResilientInferenceDispatcherTest {
         // One failing service must not open another's breaker.
         CircuitBreakerRegistry breakers = fastBreakers();
         ResilientInferenceDispatcher dispatcher = dispatcher(breakers, BulkheadRegistry.ofDefaults());
-        AiServiceDescriptor other = new AiServiceDescriptor(new ServiceId("another-service"),
+        AiServiceDescriptor other = AiServiceDescriptor.of(new ServiceId("another-service"),
                 Set.of(Modality.RF), ProviderMode.GRPC, Optional.of("h:1"),
                 Duration.ofMillis(200), Optional.empty(), 32);
 

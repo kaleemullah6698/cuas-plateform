@@ -775,6 +775,42 @@ anyway, so `-web` is the correct dependency rather than a workaround.
 
 Verified: `mvn clean verify` — **17 modules, 583 tests** (+29), 0 failures.
 
+**M6.5 — gRPC provider, canary and admin API** — ✅ **Complete** — 153 orchestrator tests (+18)
+The half that makes a trained model reachable. Delivered: `GrpcInferenceProvider` speaking the §6.2
+contract, `CanaryPolicy` splitting by `trackId` hash per §6.6, and `GET /ai/services` +
+`POST /ai/services/{id}/model-version` under `ai:configure`.
+
+**Decisions worth defending:**
+- **One gRPC provider serves every `mode: grpc` service.** The endpoint comes from the descriptor and
+  channels are cached per endpoint. A provider bean per model would be the code change §6.1 forbids
+  *and* would mean a newly trained model could not be added without a redeploy — the opposite of what
+  §6.4's config switch promises.
+- **Channels are cached, not per call.** A gRPC channel holds connections and load-balancer state;
+  creating one per inference would add a TCP and TLS handshake to every call and defeat the latency
+  budget outright.
+- **A deadline is set on the stub as well as by the dispatcher.** The dispatcher's time limiter stops
+  the *orchestrator* waiting; the gRPC deadline additionally tells the *server* to stop working.
+  Without it a timed-out call leaves a GPU computing a result nobody will read, which under load is
+  how one slow service becomes a saturated one.
+- **The canary splits by track, not per call.** A track that lands on the canary stays there for
+  life. Splitting per request would mean one drone's successive classifications came from two models,
+  so a change in its threat level could be the model changing rather than the situation — and an
+  operator would have no way to tell which. It also makes the comparison meaningful: two populations
+  of *tracks*, not of calls.
+- **The service id is part of the canary seed**, so a track is not systematically on every service's
+  canary at once. Correlated assignment would make one model's regression look like another's.
+- **Only the version fields are mutable at runtime.** §4.1.6 requires the endpoint and §6.6 makes
+  rollback a configuration change, so versions must change while running — but an id, its modalities,
+  its mode and its endpoint stay fixed. Allowing those over HTTP would let an operator reroute the
+  pipeline through an API call.
+- **`GET /ai/services` requires `ai:configure` too**, not just the write. The registry discloses every
+  AI service's endpoint and health, which is a map of the deployment's internal topology.
+- **Health is reported, never thrown.** An admin asking which services are up must get an answer
+  about all of them, not a 500 because one is down — the unreachable one is exactly what they were
+  looking for.
+
+Verified: `mvn clean verify` — **17 modules, 601 tests** (+18), 0 failures.
+
 **M7 — Assessment & alerting**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.
 

@@ -60,6 +60,11 @@ public class AiRegistryConfig {
         return new ModalityRoutingPolicy(registry);
     }
 
+    @Bean
+    public pk.nust.cuas.orchestrator.domain.service.CanaryPolicy canaryPolicy() {
+        return new pk.nust.cuas.orchestrator.domain.service.CanaryPolicy();
+    }
+
     private static AiServiceDescriptor toDescriptor(String id, AiProperties.Service service) {
         return new AiServiceDescriptor(
                 new ServiceId(id),
@@ -68,7 +73,9 @@ public class AiRegistryConfig {
                 blankToEmpty(service.endpoint()),
                 service.timeout(),
                 blankToEmpty(service.modelVersion()),
-                service.maxConcurrent());
+                service.maxConcurrent(),
+                blankToEmpty(service.canaryVersion()),
+                service.canaryPercentage());
     }
 
     private static Set<Modality> parseModalities(String id, List<String> configured) {

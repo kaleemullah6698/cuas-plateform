@@ -15,7 +15,7 @@ import pk.nust.cuas.orchestrator.domain.model.ServiceId;
 class ModalityRoutingPolicyTest {
 
     private static AiServiceDescriptor service(String id, Modality... modalities) {
-        return new AiServiceDescriptor(new ServiceId(id), Set.of(modalities), ProviderMode.MOCK,
+        return AiServiceDescriptor.of(new ServiceId(id), Set.of(modalities), ProviderMode.MOCK,
                 Optional.empty(), Duration.ofMillis(100), Optional.empty(), 32);
     }
 

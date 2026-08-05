@@ -36,6 +36,7 @@ import pk.nust.cuas.orchestrator.domain.model.Modality;
 import pk.nust.cuas.orchestrator.domain.model.ProviderMode;
 import pk.nust.cuas.orchestrator.domain.model.ServiceId;
 import pk.nust.cuas.orchestrator.domain.service.AiServiceRegistry;
+import pk.nust.cuas.orchestrator.domain.service.CanaryPolicy;
 import pk.nust.cuas.orchestrator.domain.service.FailureInjector;
 import pk.nust.cuas.orchestrator.domain.service.LatencyModel;
 import pk.nust.cuas.orchestrator.domain.service.ModalityRoutingPolicy;
@@ -62,14 +63,14 @@ class InferenceOrchestratorTest {
     }
 
     private static AiServiceDescriptor service(String id, Modality... modalities) {
-        return new AiServiceDescriptor(new ServiceId(id), Set.of(modalities), ProviderMode.MOCK,
+        return AiServiceDescriptor.of(new ServiceId(id), Set.of(modalities), ProviderMode.MOCK,
                 Optional.empty(), Duration.ofSeconds(2), Optional.empty(), 32);
     }
 
     private InferenceOrchestrator orchestrator(AiServiceDescriptor... services) {
         AiServiceRegistry registry = new AiServiceRegistry(List.of(services));
         return new InferenceOrchestrator(
-                new ModalityRoutingPolicy(registry),
+                new ModalityRoutingPolicy(registry), new CanaryPolicy(),
                 new ProviderSelector(List.of(mock)),
                 new ResilientInferenceDispatcher(CircuitBreakerRegistry.ofDefaults(),
                         BulkheadRegistry.ofDefaults(), mock, (id, reason) -> { }, executor),
@@ -164,7 +165,7 @@ class InferenceOrchestratorTest {
         // A fallback answer describes the service's health at one moment, not the input. Caching it
         // would keep serving a mock answer for a full TTL after the real service recovered.
         when(cache.get(any(), any())).thenReturn(Optional.empty());
-        AiServiceDescriptor grpcService = new AiServiceDescriptor(new ServiceId("alpha"),
+        AiServiceDescriptor grpcService = AiServiceDescriptor.of(new ServiceId("alpha"),
                 Set.of(Modality.RF), ProviderMode.GRPC, Optional.of("nowhere:1"),
                 Duration.ofSeconds(2), Optional.empty(), 32);
         AiServiceRegistry registry = new AiServiceRegistry(List.of(grpcService));
@@ -191,7 +192,8 @@ class InferenceOrchestratorTest {
             }
         };
         InferenceOrchestrator orchestrator = new InferenceOrchestrator(
-                new ModalityRoutingPolicy(registry), new ProviderSelector(List.of(mock, failing)),
+                new ModalityRoutingPolicy(registry), new CanaryPolicy(),
+                new ProviderSelector(List.of(mock, failing)),
                 new ResilientInferenceDispatcher(CircuitBreakerRegistry.ofDefaults(),
                         BulkheadRegistry.ofDefaults(), mock, (id, reason) -> { }, executor),
                 cache, events);

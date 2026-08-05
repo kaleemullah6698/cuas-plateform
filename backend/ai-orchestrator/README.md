@@ -169,13 +169,42 @@ track-correlation's synchronous publish. There, a lost event means a track nothi
 about; here the caller already holds its answer, and failing it because telemetry could not be
 written would convert a successful inference into a failed one.
 
+## Admin API
+
+| Endpoint | Permission | Purpose |
+|---|---|---|
+| `GET /ai/services` | `ai:configure` | The registry plus each service's live health |
+| `POST /ai/services/{id}/model-version` | `ai:configure` | §6.6's rollback and canary lever |
+
+Both require `ai:configure`, which §7.4 grants to ENGINEER and ADMIN only — changing which model
+scores a threat changes what the system concludes about the airspace. The **read** is guarded too:
+the registry discloses every service's endpoint and health, a map of internal topology. Health is
+*reported*, never thrown: an admin asking which services are up must get an answer about all of them,
+not a 500 because one is down.
+
+Only the version fields are mutable at runtime. An id, its modalities, its mode and its endpoint are
+the deployment's shape; letting those change over HTTP would allow rerouting the pipeline through an
+API call.
+
+## Canary
+
+`POST .../model-version` accepts a `canaryVersion` and a `canaryPercentage`. The split is **by
+track**, hashed from `trackId` and the service id:
+
+- **By track, not per call** — a track keeps its assignment for life. Splitting per request would
+  mean one drone's successive classifications came from two models, so a change in its threat level
+  could be the model changing rather than the situation, and an operator could not tell which.
+- **The service id is in the seed**, so a track is not systematically on every service's canary at
+  once; correlated assignment would make one model's regression look like another's.
+- **Deterministic**, so the same track resolves the same way on every orchestrator instance and
+  across restarts. A `Random` here would make the canary's results meaningless.
+
 ## Status
 
-**M6.1 + M6.2 + M6.3 + M6.4 complete** — the registry, modality routing, the `InferenceProvider` port,
+**M6.1 + M6.2 + M6.3 + M6.4 + M6.5 complete** — the registry, modality routing, the `InferenceProvider` port,
 startup-validated configuration, the mock provider, and the resilience layer. A request can be
 routed, dispatched under timeout/breaker/bulkhead, cached, answered or degraded, and published on all
 four topics.
 
-Still to come: M6.5 the gRPC provider, canary split and admin API; M6.6 the two M5 items deferred
-here — track-correlation's circuit-broken `Infer` call and the `ai.inference.completed.v1` consumer
-behind `track.classified.v1`.
+Still to come: M6.6 — the two M5 items deferred here: track-correlation's circuit-broken `Infer` call
+and the `ai.inference.completed.v1` consumer behind `track.classified.v1`.

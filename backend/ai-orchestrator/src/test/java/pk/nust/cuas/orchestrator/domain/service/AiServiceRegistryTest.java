@@ -17,7 +17,7 @@ class AiServiceRegistryTest {
 
     /** Service ids are deliberately meaningless here — the registry must not care what they are. */
     private static AiServiceDescriptor service(String id, Modality... modalities) {
-        return new AiServiceDescriptor(new ServiceId(id), Set.of(modalities), ProviderMode.MOCK,
+        return AiServiceDescriptor.of(new ServiceId(id), Set.of(modalities), ProviderMode.MOCK,
                 Optional.empty(), Duration.ofMillis(100), Optional.empty(), 32);
     }
 

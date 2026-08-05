@@ -12,7 +12,7 @@ class AiServiceDescriptorTest {
 
     private static AiServiceDescriptor descriptor(
             ProviderMode mode, Optional<String> endpoint, Set<Modality> modalities) {
-        return new AiServiceDescriptor(new ServiceId("some-service"), modalities, mode, endpoint,
+        return AiServiceDescriptor.of(new ServiceId("some-service"), modalities, mode, endpoint,
                 Duration.ofMillis(100), Optional.empty(), 32);
     }
 
@@ -52,7 +52,7 @@ class AiServiceDescriptorTest {
 
     @Test
     void aNonPositiveTimeoutIsRejected() {
-        assertThatThrownBy(() -> new AiServiceDescriptor(new ServiceId("s"), Set.of(Modality.RF),
+        assertThatThrownBy(() -> AiServiceDescriptor.of(new ServiceId("s"), Set.of(Modality.RF),
                 ProviderMode.MOCK, Optional.empty(), Duration.ZERO, Optional.empty(), 32))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("timeout");
@@ -60,7 +60,7 @@ class AiServiceDescriptorTest {
 
     @Test
     void aBulkheadWithNoPermitsIsRejected() {
-        assertThatThrownBy(() -> new AiServiceDescriptor(new ServiceId("s"), Set.of(Modality.RF),
+        assertThatThrownBy(() -> AiServiceDescriptor.of(new ServiceId("s"), Set.of(Modality.RF),
                 ProviderMode.MOCK, Optional.empty(), Duration.ofMillis(100), Optional.empty(), 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("permit");

@@ -40,7 +40,9 @@ import pk.nust.cuas.orchestrator.domain.model.InferenceResult;
  * the four topics carry what §5.2 says they should. The registry is configured here rather than
  * inherited, so the test states its own routing and nothing depends on the shipped example services.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+// MOCK, not NONE: SecurityConfig builds a servlet filter chain for the admin API, so the web
+// context has to exist even though this test drives the orchestrator directly and never calls HTTP.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
         "ai.services.service-one.modalities=RF",

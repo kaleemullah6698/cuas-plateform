@@ -18,6 +18,7 @@ import pk.nust.cuas.orchestrator.common.ModalityMapper;
 import pk.nust.cuas.orchestrator.domain.model.AiServiceDescriptor;
 import pk.nust.cuas.orchestrator.domain.model.InferenceResult;
 import pk.nust.cuas.orchestrator.domain.model.Modality;
+import pk.nust.cuas.orchestrator.domain.service.CanaryPolicy;
 import pk.nust.cuas.orchestrator.domain.service.ModalityRoutingPolicy;
 import pk.nust.cuas.orchestrator.domain.service.RequestContentHash;
 import pk.nust.cuas.orchestrator.infrastructure.resilience.ResilientInferenceDispatcher;
@@ -46,15 +47,18 @@ public class InferenceOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(InferenceOrchestrator.class);
 
     private final ModalityRoutingPolicy routing;
+    private final CanaryPolicy canary;
     private final ProviderSelector providers;
     private final ResilientInferenceDispatcher dispatcher;
     private final InferenceCache cache;
     private final InferenceEventPublisher events;
 
-    public InferenceOrchestrator(ModalityRoutingPolicy routing, ProviderSelector providers,
+    public InferenceOrchestrator(ModalityRoutingPolicy routing, CanaryPolicy canary,
+                                 ProviderSelector providers,
                                  ResilientInferenceDispatcher dispatcher, InferenceCache cache,
                                  InferenceEventPublisher events) {
         this.routing = routing;
+        this.canary = canary;
         this.providers = providers;
         this.dispatcher = dispatcher;
         this.cache = cache;
@@ -75,10 +79,12 @@ public class InferenceOrchestrator {
             return List.of();
         }
 
-        String contentHash = contentHashOf(request);
         List<InferenceResult> results = new ArrayList<>(services.size());
         for (AiServiceDescriptor service : services) {
-            results.add(inferOne(service, request, contentHash));
+            // The version is resolved per service, because a canary is per service: a track may be
+            // on the canary of one model and the baseline of another.
+            InferenceRequest pinned = withVersion(request, canary.versionFor(service, request.getTrackId()));
+            results.add(inferOne(service, pinned, contentHashOf(pinned)));
         }
         return List.copyOf(results);
     }
@@ -102,6 +108,23 @@ public class InferenceOrchestrator {
         }
         events.publishOutcome(request, result);
         return result;
+    }
+
+    /**
+     * Pins the resolved model version onto the request.
+     *
+     * <p>Rebuilt rather than mutated because the request is shared across every routed service, and
+     * two services may resolve to different versions. It also puts the version *inside* the message
+     * the provider receives, so a real service sees the same pin the cache key was computed from.
+     */
+    private static InferenceRequest withVersion(InferenceRequest request, Optional<String> version) {
+        String resolved = version.orElse("");
+        if (resolved.equals(request.getOptions().getModelVersion())) {
+            return request;
+        }
+        return request.toBuilder()
+                .setOptions(request.getOptions().toBuilder().setModelVersion(resolved))
+                .build();
     }
 
     /** The distinct modalities present in the request's detections. */

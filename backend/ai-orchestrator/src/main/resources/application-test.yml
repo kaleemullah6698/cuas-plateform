@@ -15,3 +15,12 @@ logging:
   level:
     root: WARN
     pk.nust.cuas: INFO
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # The admin API is exercised through MockMvc with an injected JWT, so the key set is never
+          # fetched; this URL is a placeholder that is never called.
+          jwk-set-uri: http://localhost:59999/jwks
