@@ -6,33 +6,53 @@ Normalised detections associated into tracks.
 - **Database:** `trackdb` (`tracks`, `track_states`, `track_detections`, `track_lifecycle_events`)
 - **Specification:** `docs/ARCHITECTURE.md` sections 4.1.5, 5.3.2
 
-## The pipeline (M5.1 foundation)
+## The pipeline
 
 ```
 sensor.detection.normalized.v1 ─▶ (consume)
-     place in sector ─ gate on space & time ─ nearest-neighbour associate
-          match ─▶ extend track (may confirm)      ─▶ track.updated.v1
-          no match ─▶ open a new tentative track    ─▶ track.created.v1
+     place in sector ─ predict each candidate to the detection's time ─ gate ─ nearest-neighbour
+          match ─▶ Kalman predict-then-update, extend track ─▶ track.updated.v1
+          no match ─▶ open a new tentative track            ─▶ track.created.v1
+
+timeout sweep (every check-interval)
+     confirmed, unfed past coast-timeout ─▶ predict forward, COASTING ─▶ track.updated.v1
+     open,      unfed past lost-timeout  ─▶ LOST (terminal)           ─▶ track.lost.v1
 ```
 
-A detection is placed in a geographic sector, compared against the open tracks recently seen there,
-and either extends the nearest one within the distance and time gates or, matching none, opens a new
-tentative track. A track confirms once enough detections have associated to it. The aggregate and
-its full history — every state, association, and lifecycle transition — are persisted, and the track
-is published on `track.created.v1` / `track.updated.v1`.
+A detection is placed in a geographic sector and compared against the open tracks recently seen
+there. Each candidate is first *predicted* by its own Kalman filter to the detection's time, and the
+detection extends the nearest track whose predicted position falls inside the distance gate;
+matching none, it opens a new tentative track. A track confirms once enough detections have
+associated to it. The aggregate and its full history — every state, association, and lifecycle
+transition — are persisted, and the track is published on `track.created.v1` / `track.updated.v1` /
+`track.lost.v1`.
 
-## Three things worth knowing before changing this service
+## Four things worth knowing before changing this service
 
-**This is the foundation, not the finished correlator.** Association is a static space-time gate with
-nearest-neighbour selection; there is no motion model. Kalman-filtered state estimation, trajectory
-prediction, CPA, cross-sensor fusion, and the coasting/lost transitions are later M5 sub-milestones.
-The `Track` state carried today is simply the latest associated detection's position and velocity.
+**Association gates on the prediction, not the last fix.** Each candidate is offered to the policy
+with the position its filter predicts for the detection's time. That is what lets a fast-moving
+track keep associating, and lets a coasting track be re-acquired where it is *expected* to be. There
+is no separate time gate: the temporal bound is applied by the candidate query, which never offers a
+track older than the lost timeout.
+
+**A track carries two times, and they diverge while coasting.** `last_seen` / `lastDetectionAt` is
+when a detection last fed the track and is what the miss timeouts count from; `observed_at` /
+`estimate().observedAt()` is the time the current estimate is valid for, which a coasting prediction
+advances past `last_seen`. **Anything that advances the filter must measure `dt` from `observed_at`**
+— measuring from `last_seen` re-advances a coasting track's filter over an interval it has already
+covered, and silently corrupts the estimate on revival.
 
 **It runs single-threaded, on purpose.** The consumer's concurrency is one, which is what lets the
-read-modify-write on a track be a plain transaction. Concurrent per-sector processing and the Redis
-hot-state cache (section 4.1.5) are the scaling half of the sector model — deferred to M5.2. The
-sector is assigned and association is scoped to it; the exclusive per-instance sector ownership is
-not yet built.
+read-modify-write on a track be a plain transaction. The timeout sweep runs alongside it, so each
+swept track transitions in its own transaction under an optimistic lock (`@Version`); a track that a
+detection changed concurrently simply loses the race and is retried on the next tick. Concurrent
+per-sector processing and the Redis hot-state cache (section 4.1.5) are the scaling half of the
+sector model, still deferred. The sector is assigned and association is scoped to it; the exclusive
+per-instance sector ownership is not yet built.
+
+**Still to come in M5.** Trajectory prediction on the published contract, CPA against protected
+assets, cross-sensor duplicate elimination (`track.merged.v1`), the circuit-broken gRPC call to
+`ai-orchestrator`, the Redis hot-state cache, and the gRPC `SubscribeTracks` stream.
 
 **Correlation is idempotent.** A detection is associated to a track at most once (a unique
 `(track_id, detection_id)` constraint, and a `detectionAlreadyAssociated` guard before processing),
@@ -44,14 +64,21 @@ than leaving a track with no event.
 
 `GET /tracks`, `GET /tracks/{id}`, `GET /tracks/{id}/history` — all guarded by `track:read`
 (section 7.4), the permission every role holds. There are no mutating endpoints: a track changes
-only by consuming detections, never over HTTP. The gRPC `SubscribeTracks` stream (section 4.1.5) is
-deferred to the real-time edge work (M9).
+only by consuming detections or by the timeout sweep, never over HTTP. The gRPC `SubscribeTracks`
+stream (section 4.1.5) is not yet built.
 
 ## Configuration
 
 | Property | Default | Purpose |
 |---|---|---|
-| `correlation.association.distance-gate-m` | `500` | Max separation for a detection to extend a track |
-| `correlation.association.time-gate` | `PT30S` | Max time gap between a track's last state and a detection |
+| `correlation.association.distance-gate-m` | `500` | Max separation between a detection and a track's *predicted* position |
 | `correlation.confirmation.threshold` | `3` | Associated detections at which a track confirms |
 | `correlation.sector.cell-degrees` | `1.0` | Side of each square sector cell, in degrees |
+| `correlation.kalman.process-noise` | `1.0` | White-noise-jerk PSD (q); higher tracks manoeuvre faster |
+| `correlation.kalman.measurement-noise` | `25.0` | Position measurement variance (r), m² — 25 ≈ a 5 m std error |
+| `correlation.kalman.initial-position-variance` | `100.0` | Initial position uncertainty, m² |
+| `correlation.kalman.initial-velocity-variance` | `100.0` | Initial velocity uncertainty, (m/s)² |
+| `correlation.kalman.initial-acceleration-variance` | `10.0` | Initial acceleration uncertainty, (m/s²)² |
+| `correlation.lifecycle.coast-timeout` | `PT10S` | How long a confirmed track may miss detections before it coasts |
+| `correlation.lifecycle.lost-timeout` | `PT30S` | How long any open track may miss detections before it is lost |
+| `correlation.lifecycle.check-interval` | `PT5S` | How often the timeout sweep runs |

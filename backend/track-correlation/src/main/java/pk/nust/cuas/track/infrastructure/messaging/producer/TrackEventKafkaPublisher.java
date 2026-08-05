@@ -47,6 +47,12 @@ public class TrackEventKafkaPublisher implements TrackEventPublisher {
         log.debug("Published track.updated for {}", track.id());
     }
 
+    @Override
+    public void publishLost(Track track) {
+        send(TrackTopics.TRACK_LOST, track);
+        log.debug("Published track.lost for {}", track.id());
+    }
+
     private void send(String topic, Track track) {
         byte[] payload = toProto(track).toByteArray();
         try {
@@ -60,22 +66,22 @@ public class TrackEventKafkaPublisher implements TrackEventPublisher {
     }
 
     private pk.nust.cuas.track.v1.Track toProto(Track track) {
-        var state = track.state();
+        var estimate = track.estimate();
         return pk.nust.cuas.track.v1.Track.newBuilder()
                 .setTrackId(track.id().toString())
                 .setSectorId(track.sector().value())
                 .setStatus(toProtoStatus(track.status()))
                 .setPosition(GeoPosition.newBuilder()
-                        .setLatitude(state.position().latitude())
-                        .setLongitude(state.position().longitude())
-                        .setAltitudeM(state.position().altitudeM()))
-                .setSpeedMs(state.velocity().speedMs())
-                .setHeadingDeg(state.velocity().headingDeg())
-                .setObservedAt(toTimestamp(state.observedAt()))
+                        .setLatitude(estimate.position().latitude())
+                        .setLongitude(estimate.position().longitude())
+                        .setAltitudeM(estimate.position().altitudeM()))
+                .setSpeedMs(estimate.velocity().speedMs())
+                .setHeadingDeg(estimate.velocity().headingDeg())
+                .setObservedAt(toTimestamp(estimate.observedAt()))
                 .setFirstSeen(toTimestamp(track.firstSeen()))
-                .setLastSeen(toTimestamp(track.lastSeen()))
+                .setLastSeen(toTimestamp(track.lastDetectionAt()))
                 .setDetectionCount(track.detectionCount())
-                .setLastDetectionId(state.detectionId())
+                .setLastDetectionId(estimate.detectionId())
                 .setSchemaVersion(SCHEMA_VERSION)
                 .setCorrelationId(CorrelationId.current().orElse(""))
                 .build();
@@ -85,6 +91,8 @@ public class TrackEventKafkaPublisher implements TrackEventPublisher {
         return switch (status) {
             case TENTATIVE -> pk.nust.cuas.track.v1.TrackStatus.TRACK_STATUS_TENTATIVE;
             case CONFIRMED -> pk.nust.cuas.track.v1.TrackStatus.TRACK_STATUS_CONFIRMED;
+            case COASTING -> pk.nust.cuas.track.v1.TrackStatus.TRACK_STATUS_COASTING;
+            case LOST -> pk.nust.cuas.track.v1.TrackStatus.TRACK_STATUS_LOST;
         };
     }
 

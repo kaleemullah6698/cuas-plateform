@@ -54,11 +54,20 @@ spring:
 correlation:
   association:
     distance-gate-m: 500
-    time-gate: PT30S
   confirmation:
     threshold: 3
   sector:
     cell-degrees: 1.0
+  kalman:
+    process-noise: 1.0
+    measurement-noise: 25.0
+    initial-position-variance: 100.0
+    initial-velocity-variance: 100.0
+    initial-acceleration-variance: 10.0
+  lifecycle:
+    coast-timeout: PT10S
+    lost-timeout: PT30S
+    check-interval: PT5S
 
 server:
   port: 8084

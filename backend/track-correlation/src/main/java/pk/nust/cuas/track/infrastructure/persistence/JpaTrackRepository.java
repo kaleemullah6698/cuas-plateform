@@ -11,6 +11,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import pk.nust.cuas.track.domain.model.DetectionAssociation;
 import pk.nust.cuas.track.domain.model.GeoPoint;
+import pk.nust.cuas.track.domain.model.KalmanState;
 import pk.nust.cuas.track.domain.model.SectorId;
 import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
@@ -30,10 +31,10 @@ import pk.nust.cuas.track.infrastructure.persistence.repository.TrackStateJpaRep
 /**
  * JPA implementation of the {@link TrackRepository} port over {@code trackdb}.
  *
- * <p>{@link #create} and {@link #update} write the aggregate row and append its history in one
- * transaction (the caller's). A new track row is flushed before its history rows so their foreign
- * keys resolve regardless of Hibernate's insert ordering. The domain and the entities are separate
- * types, mapped explicitly here.
+ * <p>Each write persists the aggregate row and appends the matching history in the caller's
+ * transaction. The Kalman state is serialised to the {@code filter_state} column by
+ * {@link KalmanStateCodec}, so a reconstituted track resumes the filter exactly. A new track row is
+ * flushed before its history so their foreign keys resolve regardless of Hibernate's insert ordering.
  */
 @Repository
 public class JpaTrackRepository implements TrackRepository {
@@ -58,7 +59,14 @@ public class JpaTrackRepository implements TrackRepository {
 
     @Override
     public List<Track> findOpenInSector(SectorId sector, Instant notBefore) {
-        return tracks.findBySectorIdAndLastSeenGreaterThanEqual(sector.value(), notBefore).stream()
+        return tracks.findOpenInSector(sector.value(), notBefore).stream()
+                .map(JpaTrackRepository::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<Track> findOpenStaleBefore(Instant threshold) {
+        return tracks.findOpenStaleBefore(threshold).stream()
                 .map(JpaTrackRepository::toDomain)
                 .toList();
     }
@@ -70,7 +78,6 @@ public class JpaTrackRepository implements TrackRepository {
 
     @Override
     public void create(Track track, DetectionAssociation association, TrackLifecycleEvent creation) {
-        // Flush the parent before the history rows so their foreign keys resolve.
         tracks.saveAndFlush(toEntity(track));
         states.save(toStateEntity(track));
         detections.save(toDetectionEntity(track.id(), association));
@@ -80,17 +87,27 @@ public class JpaTrackRepository implements TrackRepository {
     @Override
     public void update(Track track, DetectionAssociation association,
                        Optional<TrackLifecycleEvent> lifecycleEvent) {
-        TrackEntity entity = tracks.findById(track.id()).orElseThrow(
-                () -> new IllegalStateException("track to update no longer exists: " + track.id()));
-        TrackState state = track.state();
-        entity.applyState(track.status().name(),
-                state.position().latitude(), state.position().longitude(), state.position().altitudeM(),
-                state.velocity().speedMs(), state.velocity().headingDeg(),
-                state.detectionId(), state.sensorId(), track.detectionCount(), state.observedAt());
-        tracks.save(entity);
+        applyEstimate(track);
         states.save(toStateEntity(track));
         detections.save(toDetectionEntity(track.id(), association));
         lifecycleEvent.ifPresent(event -> lifecycleEvents.save(toLifecycleEntity(track.id(), event)));
+    }
+
+    @Override
+    public void coast(Track track, TrackLifecycleEvent lifecycleEvent) {
+        applyEstimate(track);
+        // The predicted estimate is a real point in the track's history, so it is recorded; there is
+        // no detection to associate.
+        states.save(toStateEntity(track));
+        lifecycleEvents.save(toLifecycleEntity(track.id(), lifecycleEvent));
+    }
+
+    @Override
+    public void lose(Track track, TrackLifecycleEvent lifecycleEvent) {
+        TrackEntity entity = load(track.id());
+        entity.markLost();
+        tracks.save(entity);
+        lifecycleEvents.save(toLifecycleEntity(track.id(), lifecycleEvent));
     }
 
     @Override
@@ -100,7 +117,7 @@ public class JpaTrackRepository implements TrackRepository {
 
     @Override
     public List<Track> search(Optional<SectorId> sector, Optional<TrackStatus> status, int limit) {
-        Pageable page = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "lastSeen"));
+        Pageable page = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "lastDetectionAt"));
         List<TrackEntity> found;
         if (sector.isPresent() && status.isPresent()) {
             found = tracks.findBySectorIdAndStatus(sector.get().value(), status.get().name(), page);
@@ -121,13 +138,31 @@ public class JpaTrackRepository implements TrackRepository {
                 .toList();
     }
 
+    private void applyEstimate(Track track) {
+        TrackEntity entity = load(track.id());
+        TrackState estimate = track.estimate();
+        entity.applyEstimate(track.status().name(),
+                estimate.position().latitude(), estimate.position().longitude(), estimate.position().altitudeM(),
+                estimate.velocity().speedMs(), estimate.velocity().headingDeg(),
+                estimate.detectionId(), estimate.sensorId(), track.detectionCount(),
+                estimate.observedAt(), track.lastDetectionAt(), KalmanStateCodec.encode(track.filter()));
+        tracks.save(entity);
+    }
+
+    private TrackEntity load(UUID id) {
+        return tracks.findById(id).orElseThrow(
+                () -> new IllegalStateException("track to update no longer exists: " + id));
+    }
+
     private static Track toDomain(TrackEntity entity) {
-        TrackState state = new TrackState(
+        KalmanState filter = KalmanStateCodec.decode(entity.filterState());
+        TrackState estimate = new TrackState(
                 new GeoPoint(entity.latitude(), entity.longitude(), entity.altitudeM()),
                 new Velocity(entity.speedMs(), entity.headingDeg()),
-                entity.lastSeen(), entity.lastDetectionId(), entity.lastSensorId());
+                entity.observedAt(), entity.lastDetectionId(), entity.lastSensorId());
         return Track.reconstitute(entity.trackId(), new SectorId(entity.sectorId()),
-                TrackStatus.valueOf(entity.status()), state, entity.detectionCount(), entity.firstSeen());
+                TrackStatus.valueOf(entity.status()), filter, estimate, entity.detectionCount(),
+                entity.firstSeen(), entity.lastDetectionAt());
     }
 
     private static TrackState toStateDomain(TrackStateEntity entity) {
@@ -138,20 +173,21 @@ public class JpaTrackRepository implements TrackRepository {
     }
 
     private static TrackEntity toEntity(Track track) {
-        TrackState state = track.state();
+        TrackState estimate = track.estimate();
         return new TrackEntity(track.id(), track.sector().value(), track.status().name(),
-                state.position().latitude(), state.position().longitude(), state.position().altitudeM(),
-                state.velocity().speedMs(), state.velocity().headingDeg(),
-                state.detectionId(), state.sensorId(), track.detectionCount(),
-                track.firstSeen(), state.observedAt());
+                estimate.position().latitude(), estimate.position().longitude(), estimate.position().altitudeM(),
+                estimate.velocity().speedMs(), estimate.velocity().headingDeg(),
+                estimate.detectionId(), estimate.sensorId(), track.detectionCount(),
+                track.firstSeen(), estimate.observedAt(), track.lastDetectionAt(),
+                KalmanStateCodec.encode(track.filter()));
     }
 
     private TrackStateEntity toStateEntity(Track track) {
-        TrackState state = track.state();
+        TrackState estimate = track.estimate();
         return new TrackStateEntity(track.id(),
-                state.position().latitude(), state.position().longitude(), state.position().altitudeM(),
-                state.velocity().speedMs(), state.velocity().headingDeg(),
-                state.observedAt(), state.detectionId(), state.sensorId(), clock.instant());
+                estimate.position().latitude(), estimate.position().longitude(), estimate.position().altitudeM(),
+                estimate.velocity().speedMs(), estimate.velocity().headingDeg(),
+                estimate.observedAt(), estimate.detectionId(), estimate.sensorId(), clock.instant());
     }
 
     private static TrackDetectionEntity toDetectionEntity(UUID trackId, DetectionAssociation association) {

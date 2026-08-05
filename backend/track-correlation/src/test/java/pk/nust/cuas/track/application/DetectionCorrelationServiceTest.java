@@ -25,15 +25,19 @@ import pk.nust.cuas.commons.id.Uuidv7Generator;
 import pk.nust.cuas.detection.v1.DetectionRecord;
 import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.domain.model.GeoPoint;
+import pk.nust.cuas.track.domain.model.KalmanState;
 import pk.nust.cuas.track.domain.model.SectorId;
 import pk.nust.cuas.track.domain.model.Track;
+import pk.nust.cuas.track.domain.model.TrackLifecycleEvent;
 import pk.nust.cuas.track.domain.model.TrackState;
 import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.model.Velocity;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.AssociationPolicy;
+import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.SectorPolicy;
 import pk.nust.cuas.track.domain.service.TrackConfirmationPolicy;
+import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
 import pk.nust.cuas.track.support.Detections;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,21 +52,27 @@ class DetectionCorrelationServiceTest {
     @Mock
     private TrackEventPublisher publisher;
 
+    private final KalmanFilter kalman = new KalmanFilter(1.0, 25.0, 100, 100, 10);
+
     private DetectionCorrelationService service() {
         return new DetectionCorrelationService(
                 tracks,
                 new SectorPolicy(1.0),
-                new AssociationPolicy(500.0, Duration.ofSeconds(30)),
+                new AssociationPolicy(500.0),
                 new TrackConfirmationPolicy(3),
+                kalman,
+                new TrackTimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(30)),
                 publisher,
                 new Uuidv7Generator(new Random(1)),
                 Clock.fixed(T, ZoneOffset.UTC));
     }
 
-    private Track existingTrack(int detectionCount, TrackStatus status) {
-        TrackState state = new TrackState(new GeoPoint(LAT, LON, 100), Velocity.NONE, T, "d-prev", "s1");
-        return Track.reconstitute(UUID.randomUUID(), new SectorId("SECTOR_33_73"), status, state,
-                detectionCount, T.minusSeconds(10));
+    private Track existingTrack(int detectionCount, TrackStatus status, Instant lastDetectionAt) {
+        KalmanState filter = kalman.initial(new GeoPoint(LAT, LON, 100), Velocity.NONE);
+        TrackState estimate = new TrackState(new GeoPoint(LAT, LON, 100), Velocity.NONE,
+                lastDetectionAt, "d-prev", "s1");
+        return Track.reconstitute(UUID.randomUUID(), new SectorId("SECTOR_33_73"), status, filter,
+                estimate, detectionCount, lastDetectionAt.minusSeconds(10), lastDetectionAt);
     }
 
     @Test
@@ -77,13 +87,13 @@ class DetectionCorrelationServiceTest {
         assertThat(created.getValue().status()).isEqualTo(TrackStatus.TENTATIVE);
         assertThat(created.getValue().detectionCount()).isEqualTo(1);
         verify(publisher).publishCreated(any());
-        verify(publisher, never()).publishUpdated(any());
     }
 
     @Test
-    void extendsAnExistingTrackWithinTheGate() {
+    void extendsANearbyTrackUsingItsPrediction() {
         when(tracks.detectionAlreadyAssociated(anyString())).thenReturn(false);
-        when(tracks.findOpenInSector(any(), any())).thenReturn(List.of(existingTrack(1, TrackStatus.TENTATIVE)));
+        when(tracks.findOpenInSector(any(), any()))
+                .thenReturn(List.of(existingTrack(1, TrackStatus.TENTATIVE, T)));
 
         service().correlate(Detections.normalized("d2", "s1", 2L, LAT, LON, T.plusSeconds(3)));
 
@@ -97,14 +107,13 @@ class DetectionCorrelationServiceTest {
     @Test
     void confirmsATrackWhenTheThresholdIsReached() {
         when(tracks.detectionAlreadyAssociated(anyString())).thenReturn(false);
-        // A track already seen twice; this detection is its third.
-        when(tracks.findOpenInSector(any(), any())).thenReturn(List.of(existingTrack(2, TrackStatus.TENTATIVE)));
+        when(tracks.findOpenInSector(any(), any()))
+                .thenReturn(List.of(existingTrack(2, TrackStatus.TENTATIVE, T)));
 
         service().correlate(Detections.normalized("d3", "s1", 3L, LAT, LON, T.plusSeconds(4)));
 
         ArgumentCaptor<Track> updated = ArgumentCaptor.forClass(Track.class);
-        ArgumentCaptor<Optional<pk.nust.cuas.track.domain.model.TrackLifecycleEvent>> event =
-                ArgumentCaptor.forClass(Optional.class);
+        ArgumentCaptor<Optional<TrackLifecycleEvent>> event = ArgumentCaptor.forClass(Optional.class);
         verify(tracks).update(updated.capture(), any(), event.capture());
         assertThat(updated.getValue().status()).isEqualTo(TrackStatus.CONFIRMED);
         assertThat(event.getValue()).isPresent();

@@ -20,9 +20,17 @@ public interface TrackEventPublisher {
     void publishCreated(Track track);
 
     /**
-     * Publishes an updated track to {@code track.updated.v1}.
+     * Publishes an updated track to {@code track.updated.v1}. Used for both a detection-driven update
+     * and a coasting prediction — the topic carries the track's new estimated state either way.
      *
      * @param track the updated track
      */
     void publishUpdated(Track track);
+
+    /**
+     * Publishes a lost track to {@code track.lost.v1} — the terminal lifecycle event.
+     *
+     * @param track the lost track
+     */
+    void publishLost(Track track);
 }

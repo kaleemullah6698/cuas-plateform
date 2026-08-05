@@ -7,12 +7,15 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
+import pk.nust.cuas.track.domain.model.TrackStatus;
 
 /**
- * JPA mapping for the {@code tracks} row — a track's current state. A separate type from the domain
- * {@code Track}, mapped explicitly (CLAUDE.md section 2). Carries a {@code @Version} for optimistic
- * locking; the foundation processes single-threaded, but the guard costs nothing and is correct when
- * M5.2 parallelises per sector.
+ * JPA mapping for the {@code tracks} row — a track's current estimated state and its serialised
+ * Kalman filter. A separate type from the domain {@code Track}, mapped explicitly (CLAUDE.md section
+ * 2). {@code last_seen} is the last-detection time (what the miss timeouts count from);
+ * {@code observed_at} is the time the estimate is valid for, which a coasting prediction advances
+ * past {@code last_seen}. Carries a {@code @Version} for optimistic locking, so the timeout sweep and
+ * a concurrent detection cannot silently overwrite each other.
  */
 @Entity
 @Table(name = "tracks")
@@ -55,8 +58,14 @@ public class TrackEntity {
     @Column(name = "first_seen", nullable = false)
     private Instant firstSeen;
 
+    @Column(name = "observed_at", nullable = false)
+    private Instant observedAt;
+
     @Column(name = "last_seen", nullable = false)
-    private Instant lastSeen;
+    private Instant lastDetectionAt;
+
+    @Column(name = "filter_state", nullable = false)
+    private String filterState;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -67,7 +76,8 @@ public class TrackEntity {
 
     public TrackEntity(UUID trackId, String sectorId, String status, double latitude, double longitude,
                        double altitudeM, double speedMs, double headingDeg, String lastDetectionId,
-                       String lastSensorId, int detectionCount, Instant firstSeen, Instant lastSeen) {
+                       String lastSensorId, int detectionCount, Instant firstSeen, Instant observedAt,
+                       Instant lastDetectionAt, String filterState) {
         this.trackId = trackId;
         this.sectorId = sectorId;
         this.status = status;
@@ -80,13 +90,16 @@ public class TrackEntity {
         this.lastSensorId = lastSensorId;
         this.detectionCount = detectionCount;
         this.firstSeen = firstSeen;
-        this.lastSeen = lastSeen;
+        this.observedAt = observedAt;
+        this.lastDetectionAt = lastDetectionAt;
+        this.filterState = filterState;
     }
 
-    /** Applies an advanced state to an existing track row. */
-    public void applyState(String status, double latitude, double longitude, double altitudeM,
-                           double speedMs, double headingDeg, String lastDetectionId, String lastSensorId,
-                           int detectionCount, Instant lastSeen) {
+    /** Applies an advanced estimate (from an association or a coast) to the row. */
+    public void applyEstimate(String status, double latitude, double longitude, double altitudeM,
+                              double speedMs, double headingDeg, String lastDetectionId, String lastSensorId,
+                              int detectionCount, Instant observedAt, Instant lastDetectionAt,
+                              String filterState) {
         this.status = status;
         this.latitude = latitude;
         this.longitude = longitude;
@@ -96,7 +109,14 @@ public class TrackEntity {
         this.lastDetectionId = lastDetectionId;
         this.lastSensorId = lastSensorId;
         this.detectionCount = detectionCount;
-        this.lastSeen = lastSeen;
+        this.observedAt = observedAt;
+        this.lastDetectionAt = lastDetectionAt;
+        this.filterState = filterState;
+    }
+
+    /** Applies the terminal lost status, leaving the estimate as the last known one. */
+    public void markLost() {
+        this.status = TrackStatus.LOST.name();
     }
 
     public UUID trackId() {
@@ -147,7 +167,15 @@ public class TrackEntity {
         return firstSeen;
     }
 
-    public Instant lastSeen() {
-        return lastSeen;
+    public Instant observedAt() {
+        return observedAt;
+    }
+
+    public Instant lastDetectionAt() {
+        return lastDetectionAt;
+    }
+
+    public String filterState() {
+        return filterState;
     }
 }

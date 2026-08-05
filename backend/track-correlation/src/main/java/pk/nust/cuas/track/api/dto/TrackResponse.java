@@ -37,20 +37,20 @@ public record TrackResponse(
         String lastDetectionId) {
 
     public static TrackResponse from(Track track) {
-        var state = track.state();
+        var estimate = track.estimate();
         return new TrackResponse(
                 track.id().toString(),
                 track.sector().value(),
                 track.status().name(),
-                state.position().latitude(),
-                state.position().longitude(),
-                state.position().altitudeM(),
-                state.velocity().speedMs(),
-                state.velocity().headingDeg(),
-                state.observedAt(),
+                estimate.position().latitude(),
+                estimate.position().longitude(),
+                estimate.position().altitudeM(),
+                estimate.velocity().speedMs(),
+                estimate.velocity().headingDeg(),
+                estimate.observedAt(),
                 track.firstSeen(),
-                track.lastSeen(),
+                track.lastDetectionAt(),
                 track.detectionCount(),
-                state.detectionId());
+                estimate.detectionId());
     }
 }

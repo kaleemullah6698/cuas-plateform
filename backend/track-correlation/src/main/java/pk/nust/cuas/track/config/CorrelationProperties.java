@@ -11,31 +11,55 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param association the spatio-temporal association gate
  * @param confirmation the tentative → confirmed rule
  * @param sector      the sector grid
+ * @param kalman      the Kalman filter tuning
+ * @param lifecycle   the miss-timeout lifecycle
  */
 @ConfigurationProperties(prefix = "correlation")
 public record CorrelationProperties(
         @DefaultValue Association association,
         @DefaultValue Confirmation confirmation,
-        @DefaultValue Sector sector) {
+        @DefaultValue Sector sector,
+        @DefaultValue Kalman kalman,
+        @DefaultValue Lifecycle lifecycle) {
 
     /**
-     * @param distanceGateM the maximum separation, in metres, for a detection to extend a track
-     * @param timeGate      the maximum time gap between a track's last state and a detection
+     * @param distanceGateM the maximum separation, in metres, between a detection and a track's
+     *                      predicted position for the detection to extend that track
      */
-    public record Association(
-            @DefaultValue("500") double distanceGateM,
-            @DefaultValue("PT30S") Duration timeGate) {
+    public record Association(@DefaultValue("500") double distanceGateM) {
     }
 
-    /**
-     * @param threshold the number of associated detections at which a track is confirmed
-     */
+    /** @param threshold the number of associated detections at which a track is confirmed */
     public record Confirmation(@DefaultValue("3") int threshold) {
     }
 
-    /**
-     * @param cellDegrees the side of each square sector cell, in degrees
-     */
+    /** @param cellDegrees the side of each square sector cell, in degrees */
     public record Sector(@DefaultValue("1.0") double cellDegrees) {
+    }
+
+    /**
+     * @param processNoise                 white-noise-jerk process noise (q); higher tracks manoeuvre faster
+     * @param measurementNoise             position measurement variance (r), m²; 25 ≈ a 5 m std error
+     * @param initialPositionVariance      initial position uncertainty, m²
+     * @param initialVelocityVariance      initial velocity uncertainty, (m/s)²
+     * @param initialAccelerationVariance  initial acceleration uncertainty, (m/s²)²
+     */
+    public record Kalman(
+            @DefaultValue("1.0") double processNoise,
+            @DefaultValue("25.0") double measurementNoise,
+            @DefaultValue("100.0") double initialPositionVariance,
+            @DefaultValue("100.0") double initialVelocityVariance,
+            @DefaultValue("10.0") double initialAccelerationVariance) {
+    }
+
+    /**
+     * @param coastTimeout  how long a confirmed track may miss detections before it coasts
+     * @param lostTimeout   how long any open track may miss detections before it is lost
+     * @param checkInterval how often the timeout sweep runs
+     */
+    public record Lifecycle(
+            @DefaultValue("PT10S") Duration coastTimeout,
+            @DefaultValue("PT30S") Duration lostTimeout,
+            @DefaultValue("PT5S") Duration checkInterval) {
     }
 }

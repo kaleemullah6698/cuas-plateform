@@ -35,6 +35,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -58,6 +59,10 @@ import pk.nust.cuas.track.support.Detections;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+// This test uses fixed past timestamps and asserts on the tentative/confirmed states, so the timeout
+// sweep must not run against its tracks; a very long interval keeps it out of the way. The coasting
+// and lost transitions are exercised deterministically in TrackLifecycleIntegrationTest.
+@TestPropertySource(properties = "correlation.lifecycle.check-interval=PT1H")
 @Testcontainers
 class TrackCorrelationPipelineIntegrationTest {
 
