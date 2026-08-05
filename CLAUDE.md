@@ -156,8 +156,8 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M4 complete; M5 in progress (M5.1 foundation, M5.2 Kalman + lifecycle, M5.3 contracts done).**
-`mvn clean verify`: 17 modules, 379 tests, 0 failures. Infrastructure verified live
+**M0–M4 complete; M5 in progress (M5.1 foundation, M5.2 Kalman + lifecycle, M5.3 contracts,
+M5.4 prediction + CPA done).** `mvn clean verify`: 17 modules, 397 tests, 0 failures. Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 
@@ -170,7 +170,7 @@ Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingest
 `sensor-ingestion`, `sensor-simulator`, `track-correlation`. The remaining six services are still
 scaffold.
 
-**Next: remaining M5 sub-milestones** — M5.4 CPA + trajectory prediction, M5.5 cross-sensor merge,
-M5.6 Redis hot-state, M5.7 gRPC `SubscribeTracks`. The AI-orchestrator `Infer` call and
+**Next: remaining M5 sub-milestones** — M5.5 cross-sensor merge, M5.6 Redis hot-state,
+M5.7 gRPC `SubscribeTracks`. The AI-orchestrator `Infer` call and
 `track.classified.v1` are deferred to M6 with cause (the orchestrator does not exist until then).
 Then M6 — AI boundary. Frontend is deferred to M9; `npm ci` has never been run.

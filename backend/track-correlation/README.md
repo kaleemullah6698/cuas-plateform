@@ -50,9 +50,29 @@ per-sector processing and the Redis hot-state cache (section 4.1.5) are the scal
 sector model, still deferred. The sector is assigned and association is scoped to it; the exclusive
 per-instance sector ownership is not yet built.
 
-**Still to come in M5.** Trajectory prediction on the published contract, CPA against protected
-assets, cross-sensor duplicate elimination (`track.merged.v1`), the circuit-broken gRPC call to
-`ai-orchestrator`, the Redis hot-state cache, and the gRPC `SubscribeTracks` stream.
+**The outlook is derived, never stored.** A published track carries where it is going
+(`predicted_trajectory`) and what it is closing on (`nearest_asset_cpa`). Both are recomputed from
+the filter on every publication by `TrackOutlookCalculator` and never persisted — storing them would
+create a staler second copy of something derivable in microseconds, and would need invalidating
+every time the asset registry changed. Only `CONFIRMED` and `COASTING` tracks get one: a tentative
+track may be a sensor artefact, and putting a confident trajectory and a CPA countdown on screen for
+something that may not exist is worse than showing nothing.
+
+**CPA is closed-form and horizontal.** It solves `t = -(r·v)/|v|²` directly rather than scanning the
+predicted trajectory for its nearest point — a scan would be bounded by the prediction horizon and
+quantised by its step, and would report a CPA at the horizon's edge for anything approaching more
+slowly than that. Altitude is deliberately excluded: folding it in would make a high overflight of
+an asset read as distant when the ground track passes directly over it.
+
+**Protected assets arrive through a port.** `ProtectedAssetRegistry` is declared in `domain/port/`;
+today's adapter reads `correlation.assets` from configuration. §4.1.12 assigns asset geometry to the
+Configuration Service, so at M8 the adapter is replaced by a config-service-backed one refreshed via
+`WatchConfig` — an infrastructure swap with no domain, CPA, or contract change.
+
+**Still to come in M5.** Cross-sensor duplicate elimination (`track.merged.v1`), the Redis hot-state
+cache, and the gRPC `SubscribeTracks` stream. The circuit-broken gRPC call to `ai-orchestrator` and
+the `ai.inference.completed.v1` consumer behind `track.classified.v1` are deferred to M6, where that
+service first exists.
 
 **Correlation is idempotent.** A detection is associated to a track at most once (a unique
 `(track_id, detection_id)` constraint, and a `detectionAlreadyAssociated` guard before processing),
@@ -82,3 +102,6 @@ stream (section 4.1.5) is not yet built.
 | `correlation.lifecycle.coast-timeout` | `PT10S` | How long a confirmed track may miss detections before it coasts |
 | `correlation.lifecycle.lost-timeout` | `PT30S` | How long any open track may miss detections before it is lost |
 | `correlation.lifecycle.check-interval` | `PT5S` | How often the timeout sweep runs |
+| `correlation.prediction.horizon` | `PT30S` | How far ahead a track's trajectory is projected |
+| `correlation.prediction.step` | `PT5S` | Interval between predicted points |
+| `correlation.assets` | `[]` | Protected assets for CPA — `id`, `name`, `latitude`, `longitude`, `altitude-m` |

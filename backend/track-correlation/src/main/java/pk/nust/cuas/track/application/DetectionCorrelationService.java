@@ -25,6 +25,7 @@ import pk.nust.cuas.track.domain.service.AssociationPolicy;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.SectorPolicy;
 import pk.nust.cuas.track.domain.service.TrackConfirmationPolicy;
+import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
 import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
 
 /**
@@ -52,6 +53,7 @@ public class DetectionCorrelationService {
     private final TrackConfirmationPolicy confirmationPolicy;
     private final KalmanFilter kalman;
     private final TrackEventPublisher publisher;
+    private final TrackOutlookCalculator outlook;
     private final Uuidv7Generator idGenerator;
     private final Clock clock;
     private final Duration candidateWindow;
@@ -63,6 +65,7 @@ public class DetectionCorrelationService {
                                        KalmanFilter kalman,
                                        TrackTimeoutPolicy timeoutPolicy,
                                        TrackEventPublisher publisher,
+                                       TrackOutlookCalculator outlook,
                                        Uuidv7Generator idGenerator,
                                        Clock clock) {
         this.tracks = tracks;
@@ -71,6 +74,7 @@ public class DetectionCorrelationService {
         this.confirmationPolicy = confirmationPolicy;
         this.kalman = kalman;
         this.publisher = publisher;
+        this.outlook = outlook;
         this.idGenerator = idGenerator;
         this.clock = clock;
         // A track older than the lost timeout would already be lost, so it is never an association
@@ -129,7 +133,7 @@ public class DetectionCorrelationService {
                 state.detectionId(), state.sensorId(), incoming.sensorSeq(), match.distanceM(), clock.instant());
 
         tracks.update(transition.track(), association, transition.lifecycleEvent());
-        publisher.publishUpdated(transition.track());
+        publisher.publishUpdated(transition.track(), outlook.outlookFor(transition.track()));
         log.debug("Associated detection {} to track {} at {} m ({} detections, {})",
                 state.detectionId(), transition.track().id(), Math.round(match.distanceM()),
                 transition.track().detectionCount(), transition.track().status());
@@ -146,7 +150,7 @@ public class DetectionCorrelationService {
                 state.detectionId(), state.sensorId(), incoming.sensorSeq(), clock.instant());
 
         tracks.create(track, association, TrackLifecycleEvent.creation(TrackStatus.TENTATIVE, state.observedAt()));
-        publisher.publishCreated(track);
+        publisher.publishCreated(track, outlook.outlookFor(track));
         log.debug("Opened track {} in sector {} from detection {}", id, sector.value(), state.detectionId());
     }
 

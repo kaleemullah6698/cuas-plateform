@@ -63,7 +63,14 @@ import pk.nust.cuas.track.v1.TrackStatus;
 @TestPropertySource(properties = {
         "correlation.lifecycle.coast-timeout=PT8S",
         "correlation.lifecycle.lost-timeout=PT16S",
-        "correlation.lifecycle.check-interval=PT1S"})
+        "correlation.lifecycle.check-interval=PT1S",
+        // One protected asset, so the published track carries a CPA (section 4.1.5). Placed a few
+        // kilometres east of this test's tracks, through the ProtectedAssetRegistry port's
+        // configuration-backed adapter — the same path the config-service adapter will take at M8.
+        "correlation.assets[0].id=asset-1",
+        "correlation.assets[0].name=North Gate",
+        "correlation.assets[0].latitude=30.5",
+        "correlation.assets[0].longitude=40.55"})
 @Testcontainers
 class TrackLifecycleIntegrationTest {
 
@@ -111,9 +118,26 @@ class TrackLifecycleIntegrationTest {
 
             // The sweep predicts it forward and republishes it on track.updated.v1 as COASTING.
             awaitStatus(sector, "COASTING", Duration.ofSeconds(20));
-            assertThat(awaitTrack(updates, sector, TrackStatus.TRACK_STATUS_COASTING).getDetectionCount())
+            Track coasting = awaitTrack(updates, sector, TrackStatus.TRACK_STATUS_COASTING);
+            assertThat(coasting.getDetectionCount())
                     .as("coasting does not consume a detection")
                     .isEqualTo(3);
+
+            // A coasting track is exactly when the operator wants to know where it is heading, so
+            // the outlook (section 4.1.5) must survive the whole path to the wire.
+            assertThat(coasting.getPredictedTrajectoryList())
+                    .as("a coasting track carries a predicted trajectory")
+                    .isNotEmpty();
+            assertThat(coasting.getPredictedTrajectoryList())
+                    .extracting(p -> p.getUncertaintyM())
+                    .as("uncertainty grows with the horizon")
+                    .isSorted();
+            assertThat(coasting.hasNearestAssetCpa()).isTrue();
+            assertThat(coasting.getNearestAssetCpa().getAssetId()).isEqualTo("asset-1");
+            assertThat(coasting.getNearestAssetCpa().getAssetName()).isEqualTo("North Gate");
+            assertThat(coasting.getEstimate().getPositionUncertaintyM())
+                    .as("the filter publishes how well it believes its own estimate")
+                    .isPositive();
 
             // Still not fed: the lost timeout takes it to the terminal state on track.lost.v1.
             awaitStatus(sector, "LOST", Duration.ofSeconds(25));

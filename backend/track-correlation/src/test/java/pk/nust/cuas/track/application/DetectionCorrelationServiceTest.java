@@ -37,6 +37,7 @@ import pk.nust.cuas.track.domain.service.AssociationPolicy;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.SectorPolicy;
 import pk.nust.cuas.track.domain.service.TrackConfirmationPolicy;
+import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
 import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
 import pk.nust.cuas.track.support.Detections;
 
@@ -51,6 +52,8 @@ class DetectionCorrelationServiceTest {
     private TrackRepository tracks;
     @Mock
     private TrackEventPublisher publisher;
+    @Mock
+    private TrackOutlookCalculator outlook;
 
     private final KalmanFilter kalman = new KalmanFilter(1.0, 25.0, 100, 100, 10);
 
@@ -63,6 +66,7 @@ class DetectionCorrelationServiceTest {
                 kalman,
                 new TrackTimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(30)),
                 publisher,
+                outlook,
                 new Uuidv7Generator(new Random(1)),
                 Clock.fixed(T, ZoneOffset.UTC));
     }
@@ -86,7 +90,7 @@ class DetectionCorrelationServiceTest {
         verify(tracks).create(created.capture(), any(), any());
         assertThat(created.getValue().status()).isEqualTo(TrackStatus.TENTATIVE);
         assertThat(created.getValue().detectionCount()).isEqualTo(1);
-        verify(publisher).publishCreated(any());
+        verify(publisher).publishCreated(any(), any());
     }
 
     @Test
@@ -100,7 +104,7 @@ class DetectionCorrelationServiceTest {
         ArgumentCaptor<Track> updated = ArgumentCaptor.forClass(Track.class);
         verify(tracks).update(updated.capture(), any(), any());
         assertThat(updated.getValue().detectionCount()).isEqualTo(2);
-        verify(publisher).publishUpdated(any());
+        verify(publisher).publishUpdated(any(), any());
         verify(tracks, never()).create(any(), any(), any());
     }
 

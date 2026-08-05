@@ -11,6 +11,7 @@ import pk.nust.cuas.track.application.port.TrackEventPublisher;
 import pk.nust.cuas.track.domain.model.Track;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
+import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
 import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
 
 /**
@@ -32,13 +33,16 @@ public class TrackTimeoutApplier {
     private final TrackTimeoutPolicy timeoutPolicy;
     private final KalmanFilter kalman;
     private final TrackEventPublisher publisher;
+    private final TrackOutlookCalculator outlook;
 
     public TrackTimeoutApplier(TrackRepository tracks, TrackTimeoutPolicy timeoutPolicy,
-                               KalmanFilter kalman, TrackEventPublisher publisher) {
+                               KalmanFilter kalman, TrackEventPublisher publisher,
+                               TrackOutlookCalculator outlook) {
         this.tracks = tracks;
         this.timeoutPolicy = timeoutPolicy;
         this.kalman = kalman;
         this.publisher = publisher;
+        this.outlook = outlook;
     }
 
     /**
@@ -64,7 +68,7 @@ public class TrackTimeoutApplier {
     private void coast(Track track, Instant now) {
         Track.Transition transition = track.coast(now, kalman);
         tracks.coast(transition.track(), transition.lifecycleEvent().orElseThrow());
-        publisher.publishUpdated(transition.track());
+        publisher.publishUpdated(transition.track(), outlook.outlookFor(transition.track()));
         log.debug("Track {} is coasting", track.id());
     }
 

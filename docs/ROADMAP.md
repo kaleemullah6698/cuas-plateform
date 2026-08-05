@@ -396,6 +396,40 @@ hot-state, M5.7 gRPC `SubscribeTracks`. **Deferred to M6 with cause:** the circu
 `track.classified.v1` — `ai-orchestrator` is pure scaffold until M6, and this milestone's own
 dependency line already reads "M4, **and M6's contract**".
 
+**M5.4 — Trajectory prediction & CPA** — ✅ **Complete** — 76 tests (+18)
+The forward-looking half of §4.1.5, built on the M5.3 contract. Delivered: `TrajectoryPredictor` and
+`CpaCalculator` (both named in §4.3), a `ProtectedAssetRegistry` domain port with its
+configuration-backed adapter, `TrackOutlookCalculator` composing the two, and the estimate,
+trajectory and CPA published on every track event.
+
+**Decisions worth defending:**
+- **The outlook is derived, never persisted.** `TrackOutlook` is recomputed from the filter on every
+  publication. Storing it would create a staler second copy of something derivable in microseconds,
+  and would need invalidating whenever the asset registry changed.
+- **Only confirmed and coasting tracks get one.** A `TENTATIVE` track may be a sensor artefact whose
+  filter has seen too few measurements for its velocity to mean anything; a confident-looking
+  trajectory and a CPA countdown on the operator's screen for something that may not exist is worse
+  than showing nothing. A `LOST` track is not going anywhere. Coasting tracks *do* get one — that is
+  precisely when an operator wants to know where something is heading.
+- **CPA is closed-form, not a scan of the trajectory.** It solves `t = -(r·v)/|v|²` directly. Scanning
+  the predicted points for the nearest one would be bounded by the prediction horizon and quantised
+  by its step, and would report a CPA at the horizon's edge for anything approaching more slowly.
+- **CPA is horizontal only.** Folding altitude in would make a high overflight of an asset read as
+  distant when the ground track passes directly over it.
+- **"Nearest asset" means the one it will get closest to**, not the one it is closest to now — which
+  is the question §6.3.4 threat scoring is actually asking. Pinned by a test where a track sits beside
+  one asset while flying straight at another.
+- **Each predicted point is computed by one advance from the present**, not by chaining the previous
+  prediction. Chaining `i` single steps accumulates process noise `i` times and overstates how fast
+  confidence decays; one advance of `i·step` accumulates it once for that interval.
+- **A receding track reports `closing = false`**, not a negative time-to-CPA, and a missing asset
+  registry yields no CPA rather than a fabricated default.
+
+Verified: `mvn clean verify` — **17 modules, 397 tests** (+18), 0 failures. `TrackLifecycleIntegrationTest`
+now configures a protected asset and asserts the coasting track reaches Kafka carrying a predicted
+trajectory with monotonically growing uncertainty, the named CPA, and a positive position
+uncertainty — the whole path from filter to wire.
+
 **M6 — AI boundary**
 Objective: the Track-A/Track-B decoupling, working with zero models. Services: `ai-orchestrator`, `mock-inference-provider`. Deliverables: modality routing, per-service timeout + Resilience4j breaker + bulkhead, content-hash cache, canary split, mock fallback publishing `ai.service.degraded.v1`; deterministic latency-realistic failure-injecting mock badged `0.0.0-mock`. Dependencies: M1. Expected output: `ai.inference.completed.v1` produced from mock; breaker opens and falls back under injected failure. Testing: the shared conformance suite (pytest) against the mock; breaker/bulkhead unit tests; a fallback integration test.
 

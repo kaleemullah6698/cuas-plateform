@@ -105,6 +105,39 @@ public final class KalmanFilter {
         return new Velocity(speed, heading);
     }
 
+    /** @return the estimated vertical speed in m/s, positive up */
+    public double verticalSpeedMs(KalmanState state) {
+        return state.up().velocity();
+    }
+
+    /** @return the magnitude of the estimated horizontal acceleration, m/s² */
+    public double accelerationMs2(KalmanState state) {
+        return Math.hypot(state.east().acceleration(), state.north().acceleration());
+    }
+
+    /**
+     * The 1σ horizontal position error implied by the filter covariance.
+     *
+     * <p>The east and north position variances sum because the axes are independent by construction
+     * — that is what running one estimator per axis of a local tangent frame buys — so the radial
+     * variance is their sum and the standard deviation its square root.
+     *
+     * @param state the state to measure
+     * @return the standard deviation in metres
+     */
+    public double positionUncertaintyM(KalmanState state) {
+        return Math.sqrt(variance(state.east(), 0) + variance(state.north(), 0));
+    }
+
+    /** @return the 1σ horizontal velocity error implied by the filter covariance, in m/s */
+    public double velocityUncertaintyMs(KalmanState state) {
+        return Math.sqrt(variance(state.east(), 1) + variance(state.north(), 1));
+    }
+
+    private static double variance(Axis axis, int index) {
+        return axis.covariance()[index][index];
+    }
+
     private Axis seededAxis(double velocity) {
         double[][] covariance = {
                 {initialPositionVariance, 0, 0},

@@ -68,6 +68,14 @@ correlation:
     coast-timeout: PT10S
     lost-timeout: PT30S
     check-interval: PT5S
+  prediction:
+    horizon: PT30S
+    step: PT5S
+  # Protected assets for CPA. ARCHITECTURE.md section 4.1.12 assigns these to the Configuration
+  # Service; until it exists (M8) they are configured here and read through the
+  # ProtectedAssetRegistry port. Empty by default — with no asset configured no CPA is published,
+  # which is the honest outcome rather than a fabricated default.
+  assets: []
 
 server:
   port: 8084

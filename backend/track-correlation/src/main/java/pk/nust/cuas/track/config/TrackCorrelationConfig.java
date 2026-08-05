@@ -7,11 +7,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import pk.nust.cuas.commons.id.Uuidv7Generator;
+import pk.nust.cuas.track.domain.model.GeoPoint;
+import pk.nust.cuas.track.domain.model.ProtectedAsset;
+import pk.nust.cuas.track.domain.port.ProtectedAssetRegistry;
 import pk.nust.cuas.track.domain.service.AssociationPolicy;
+import pk.nust.cuas.track.domain.service.CpaCalculator;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
 import pk.nust.cuas.track.domain.service.SectorPolicy;
 import pk.nust.cuas.track.domain.service.TrackConfirmationPolicy;
+import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
 import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
+import pk.nust.cuas.track.domain.service.TrajectoryPredictor;
+import pk.nust.cuas.track.infrastructure.config.ConfiguredProtectedAssetRegistry;
 
 /**
  * Wires the framework-free domain services as beans, parameterised from {@link CorrelationProperties},
@@ -57,6 +64,36 @@ public class TrackCorrelationConfig {
         CorrelationProperties.Kalman k = properties.kalman();
         return new KalmanFilter(k.processNoise(), k.measurementNoise(),
                 k.initialPositionVariance(), k.initialVelocityVariance(), k.initialAccelerationVariance());
+    }
+
+    @Bean
+    public TrajectoryPredictor trajectoryPredictor(KalmanFilter kalman, CorrelationProperties properties) {
+        return new TrajectoryPredictor(
+                kalman, properties.prediction().horizon(), properties.prediction().step());
+    }
+
+    @Bean
+    public CpaCalculator cpaCalculator() {
+        return new CpaCalculator();
+    }
+
+    /**
+     * The interim asset source (section 4.1.12): a static list from configuration until the
+     * Configuration Service exists at M8, at which point only this method changes.
+     */
+    @Bean
+    public ProtectedAssetRegistry protectedAssetRegistry(CorrelationProperties properties) {
+        return new ConfiguredProtectedAssetRegistry(properties.assets().stream()
+                .map(asset -> new ProtectedAsset(asset.id(), asset.name(),
+                        new GeoPoint(asset.latitude(), asset.longitude(), asset.altitudeM())))
+                .toList());
+    }
+
+    @Bean
+    public TrackOutlookCalculator trackOutlookCalculator(TrajectoryPredictor predictor,
+                                                         CpaCalculator cpaCalculator,
+                                                         ProtectedAssetRegistry assets) {
+        return new TrackOutlookCalculator(predictor, cpaCalculator, assets);
     }
 
     @Bean

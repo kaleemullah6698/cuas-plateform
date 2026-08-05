@@ -1,6 +1,7 @@
 package pk.nust.cuas.track.config;
 
 import java.time.Duration;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -13,6 +14,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param sector      the sector grid
  * @param kalman      the Kalman filter tuning
  * @param lifecycle   the miss-timeout lifecycle
+ * @param prediction  the trajectory-prediction horizon
+ * @param assets      the protected assets CPA is measured against
  */
 @ConfigurationProperties(prefix = "correlation")
 public record CorrelationProperties(
@@ -20,7 +23,9 @@ public record CorrelationProperties(
         @DefaultValue Confirmation confirmation,
         @DefaultValue Sector sector,
         @DefaultValue Kalman kalman,
-        @DefaultValue Lifecycle lifecycle) {
+        @DefaultValue Lifecycle lifecycle,
+        @DefaultValue Prediction prediction,
+        @DefaultValue List<Asset> assets) {
 
     /**
      * @param distanceGateM the maximum separation, in metres, between a detection and a track's
@@ -61,5 +66,31 @@ public record CorrelationProperties(
             @DefaultValue("PT10S") Duration coastTimeout,
             @DefaultValue("PT30S") Duration lostTimeout,
             @DefaultValue("PT5S") Duration checkInterval) {
+    }
+
+    /**
+     * @param horizon how far ahead a track's trajectory is projected
+     * @param step    the interval between predicted points
+     */
+    public record Prediction(
+            @DefaultValue("PT30S") Duration horizon,
+            @DefaultValue("PT5S") Duration step) {
+    }
+
+    /**
+     * A protected asset, as configured until the Configuration Service owns them (section 4.1.12).
+     *
+     * @param id        stable identifier
+     * @param name      what the operator sees
+     * @param latitude  degrees, WGS-84
+     * @param longitude degrees, WGS-84
+     * @param altitudeM metres above mean sea level
+     */
+    public record Asset(
+            String id,
+            String name,
+            double latitude,
+            double longitude,
+            @DefaultValue("0") double altitudeM) {
     }
 }

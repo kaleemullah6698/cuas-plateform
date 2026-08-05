@@ -25,6 +25,7 @@ import pk.nust.cuas.track.domain.model.TrackStatus;
 import pk.nust.cuas.track.domain.model.Velocity;
 import pk.nust.cuas.track.domain.port.TrackRepository;
 import pk.nust.cuas.track.domain.service.KalmanFilter;
+import pk.nust.cuas.track.domain.service.TrackOutlookCalculator;
 import pk.nust.cuas.track.domain.service.TrackTimeoutPolicy;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,12 +37,14 @@ class TrackTimeoutApplierTest {
     private TrackRepository tracks;
     @Mock
     private TrackEventPublisher publisher;
+    @Mock
+    private TrackOutlookCalculator outlook;
 
     private final KalmanFilter kalman = new KalmanFilter(1.0, 25.0, 100, 100, 10);
 
     private TrackTimeoutApplier applier() {
         return new TrackTimeoutApplier(tracks,
-                new TrackTimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(30)), kalman, publisher);
+                new TrackTimeoutPolicy(Duration.ofSeconds(10), Duration.ofSeconds(30)), kalman, publisher, outlook);
     }
 
     private Track track(TrackStatus status) {
@@ -62,7 +65,7 @@ class TrackTimeoutApplierTest {
         ArgumentCaptor<Track> coasted = ArgumentCaptor.forClass(Track.class);
         verify(tracks).coast(coasted.capture(), any());
         assertThat(coasted.getValue().status()).isEqualTo(TrackStatus.COASTING);
-        verify(publisher).publishUpdated(any());
+        verify(publisher).publishUpdated(any(), any());
         verify(tracks, never()).lose(any(), any());
     }
 
@@ -88,7 +91,7 @@ class TrackTimeoutApplierTest {
 
         verify(tracks, never()).coast(any(), any());
         verify(tracks, never()).lose(any(), any());
-        verify(publisher, never()).publishUpdated(any());
+        verify(publisher, never()).publishUpdated(any(), any());
         verify(publisher, never()).publishLost(any());
     }
 
