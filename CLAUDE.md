@@ -156,7 +156,7 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M5 complete.** `mvn clean verify`: 17 modules, 448 tests, 0 failures. Infrastructure verified live
+**M0–M5 complete; M6 in progress (M6.1 done).** `mvn clean verify`: 17 modules, 490 tests, 0 failures. Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 
@@ -169,13 +169,19 @@ Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingest
 `sensor-ingestion`, `sensor-simulator`, `track-correlation`. The remaining six services are still
 scaffold.
 
-**Next: M6 — AI boundary** (`ai-orchestrator` + `mock-inference-provider`). Two M5 items ride with
+**M6 in progress** (`ai-orchestrator` + `mock-inference-provider`). M6.1 foundation done. Two M5 items ride with
 it, deferred with cause because the orchestrator does not exist until M6: the circuit-broken `Infer`
 call from `track-correlation`, and the `ai.inference.completed.v1` consumer behind
 `track.classified.v1`. Frontend is deferred to M9; `npm ci` has never been run.
 
+**The orchestrator must never name a model.** §6.1's guarantee — a new model is a configuration
+entry, not a code change — is enforced by `ModelAgnosticismTest`, which fails the build if a §6.3
+service or framework name appears anywhere in `ai-orchestrator` source, comments included. Route by
+*modality* (a fact about the sensor), never by service identity.
+
 **On the AI models:** three trained models (RF, Vision, Acoustic) exist as Kaggle notebooks. They
-are *not* production services and are not to be integrated directly. M6 builds the orchestrator with
+are *not* production services and are not to be integrated directly. **No model conversion or ONNX
+packaging happens during M6** — M6 builds the boundary; the notebooks stay external assets. M6 builds the orchestrator with
 the mock provider as the default; the real services arrive later behind the same `InferenceProvider`
 port (§6.1, §6.4) with **no orchestration change**. `acoustic-classifier` is §6.3.5 "future" —
 promoting it needs an architecture amendment, agreed as a follow-on sub-milestone.

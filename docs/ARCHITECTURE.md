@@ -1563,6 +1563,17 @@ Every AI capability is an **independently deployable container** that:
 
 The AI Orchestrator is the only component that knows an AI service exists. Adding a fifth model — acoustic, GNSS, or otherwise — is a configuration entry, not a code change anywhere in Track A.
 
+**How that guarantee is kept (M6.1).** Routing is by **sensor modality**, never by service identity. A modality describes the *input* — "this detection came from an RF sensor" is a fact about the sensor, whereas "send this to the RF classifier" would be a fact about a model — so a service declares the modalities it accepts and routing follows automatically. Concretely:
+
+- Services are a **map keyed by id** under `ai.services`, not a fixed set of configuration fields. A new model is a new YAML block.
+- `ServiceId` is opaque; `AiServiceDescriptor` carries no per-model field and has no subclass. A radar-fusion, acoustic, or GNSS service is the same record with different values.
+- `InferenceProvider` takes the descriptor as a **parameter**, so one provider implementation serves every registered service. A bean per model would itself be the code change this section forbids.
+- A service accepting several modalities is routed for any of them but **invoked once per request**; otherwise a fusion model would be called twice for one track, doubling GPU load and yielding two competing results for one object.
+- An unrecognised or unspecified modality routes **nowhere**, rather than to a default. Sending an unidentifiable observation to whichever service is first would produce a confident-looking result from a model that never saw that kind of input.
+- Registry configuration is validated **at startup** — unknown modality or mode, duplicate id, or `mode: grpc` with no endpoint fails the context rather than the first inference.
+
+The rule is enforced mechanically rather than by convention: `ModelAgnosticismTest` scans the orchestrator's source for the service and framework names in §6.3 and fails if any appears, comments included. It is deliberately a blunt string check — naming a model in prose is the first step towards branching on it.
+
 ```mermaid
 flowchart LR
     subgraph TRACKA["Track A — Platform (Java)"]

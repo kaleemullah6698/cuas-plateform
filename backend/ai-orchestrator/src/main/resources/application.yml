@@ -1,5 +1,8 @@
-# ai-orchestrator — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# ai-orchestrator — ARCHITECTURE.md sections 4.1.6, 6.1, 6.4
+#
+# The Track A / Track B boundary. It routes inference by sensor modality to whichever services are
+# registered below, and reaches each one through the InferenceProvider port. It does not know what
+# any of them model.
 
 spring:
   application:
@@ -7,6 +10,40 @@ spring:
 
 server:
   port: 8085
+
+# The AI service registry (section 6.1). Adding a model — radar fusion, acoustic, GNSS, anything —
+# is a new block here and nothing else: no orchestrator code changes, ever.
+#
+# `mode: mock` is served by the in-process mock provider (section 6.4), a permanent,
+# production-quality component: it backs demonstrations, CI and regression testing, and it is the
+# fallback an open circuit breaker falls onto. Moving a trained model into production is a single
+# edit — `mode: grpc` plus an `endpoint` — and reverting it is the same edit backwards.
+#
+# The ids below are illustrative of the four services section 6.3 specifies. They are data, not
+# identifiers the code knows: rename them, delete them, or add others, and the orchestrator behaves
+# identically.
+ai:
+  services:
+    rf-classifier:
+      modalities: [RF]
+      mode: mock
+      timeout: PT0.1S          # section 6.3.1 p95 budget 60 ms, with headroom
+      max-concurrent: 32
+    vision-detector:
+      modalities: [EO_IR]
+      mode: mock
+      timeout: PT0.4S          # section 6.3.2: 250 ms, the pipeline's dominant term
+      max-concurrent: 32
+    radar-rf-fusion:
+      modalities: [RADAR, RF]  # multi-modal: routed for either, invoked once
+      mode: mock
+      timeout: PT0.2S          # section 6.3.3: 120 ms
+      max-concurrent: 32
+    threat-scorer:
+      modalities: [EXTERNAL]
+      mode: mock
+      timeout: PT0.08S         # section 6.3.4: 40 ms
+      max-concurrent: 32
 
 management:
   endpoints:

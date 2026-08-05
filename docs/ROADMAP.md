@@ -562,8 +562,52 @@ the `ai.inference.completed.v1` consumer behind `track.classified.v1` — becaus
 exist until M6, which is what M5's own dependency line ("M4, **and M6's contract**") anticipated.
 **B6, the open design risk since Phase 1, is closed.**
 
-**M6 — AI boundary**
+**M6 — AI boundary** — 🚧 **In progress**
 Objective: the Track-A/Track-B decoupling, working with zero models. Services: `ai-orchestrator`, `mock-inference-provider`. Deliverables: modality routing, per-service timeout + Resilience4j breaker + bulkhead, content-hash cache, canary split, mock fallback publishing `ai.service.degraded.v1`; deterministic latency-realistic failure-injecting mock badged `0.0.0-mock`. Dependencies: M1. Expected output: `ai.inference.completed.v1` produced from mock; breaker opens and falls back under injected failure. Testing: the shared conformance suite (pytest) against the mock; breaker/bulkhead unit tests; a fallback integration test.
+
+**Protocol decision, recorded rather than reopened.** §6.1 requires every AI capability to implement
+the gRPC `InferenceService`, and §6.2 specifies that contract in full — it has been authored in
+`contracts/proto/inference.proto` and compiling since M1. REST would contradict a frozen contract, so
+gRPC it is; the reasons still hold (one IDL for messaging and RPC, native deadline propagation, which
+is *how* the orchestrator enforces per-service timeouts, streaming for `InferStream`, and mTLS per
+§7.2). REST appears only on the orchestrator's own operator surfaces — `POST /inference`,
+`GET /ai/services`, `POST /ai/services/{id}/model-version` (§4.1.6) — never on the inference path.
+
+**M6.1 — Orchestrator foundation** — ✅ **Complete** — 42 tests
+The model-agnostic core. Delivered: `AiServiceRegistry` and `ModalityRoutingPolicy` (framework-free
+domain), the `InferenceProvider` port, `Modality` with its boundary mapper, and startup-validated
+`ai.services` configuration. No provider implementations yet — a request routes to a set of
+descriptors and stops there.
+
+**Decisions worth defending:**
+- **Routing is by modality, never by service identity.** A modality is a fact about the *sensor*; a
+  service name would be a fact about a *model*. This is the whole mechanism behind §6.1's guarantee,
+  and §6.1 has been amended to record it.
+- **`InferenceProvider` takes the descriptor as a parameter**, so one implementation serves every
+  registered service. A bean per model would itself be the code change §6.1 forbids.
+- **The port lives in `application/`, not `domain/`, and speaks the generated Protobuf types.** §6.2
+  *is* the contract and §6.4 requires the mock to be schema-identical so conformance is
+  compile-enforced; a private translation layer would let mock and real service drift apart in
+  exactly the way the shared conformance suite exists to prevent. `domain/` stays contract-free
+  behind `ModalityMapper` (CLAUDE.md §2).
+- **A multi-modal service is invoked once per request**, not once per matching modality — otherwise a
+  fusion model is called twice for one track: double the GPU load, two competing results for one
+  object.
+- **An unrecognised modality routes nowhere**, rather than to a default. A confident-looking result
+  from a model that never saw that input is worse than no result.
+- **Configuration fails at startup**, not at the first inference. A misconfigured AI service that
+  only surfaces under load is the failure this system can least afford.
+- **Providers throw only on *transport* failure**; an inference that could not produce a result
+  returns a status. Conflating them would open a circuit breaker because a model honestly reported
+  low confidence.
+
+**The rule is enforced, not merely documented.** `ModelAgnosticismTest` scans the module's source for
+the §6.3 service and framework names and fails if any appears, comments included — deliberately a
+blunt string check rather than a comment-aware one, since naming a model in prose is the first step
+towards branching on it. **It caught a violation on its first run**: a javadoc in `ServiceId` used a
+real service name as an illustration. Reworded rather than the check weakened.
+
+Verified: `mvn clean verify` — **17 modules, 490 tests** (+42), 0 failures.
 
 **M7 — Assessment & alerting**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.

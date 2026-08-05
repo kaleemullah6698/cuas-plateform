@@ -79,6 +79,8 @@ acceptance test end-to-end (see [Full system with Docker](#full-system-with-dock
 | Redis hot state | ✅ Executed | `RedisTrackStateStoreIntegrationTest` against a real Redis 7.4 container — a full Kalman state round-trips bit-identically, the merged-survivor link survives, evict removes one field, the TTL is applied, and a corrupt entry reads as a miss. The other integration tests run with `correlation.hot-state.enabled=false`, exercising the no-Redis path |
 | gRPC `SubscribeTracks` | ✅ Executed | `TrackStreamGrpcServiceTest` — all four event types and tags, sector filtering, empty filter meaning all sectors, a stalled subscriber skipped without starving others, a failed write detaching its subscriber, cancel+close detaching exactly once |
 | `buf lint` / `buf breaking` / `buf generate` (M5.7) | ✅ Executed | `TrackService.SubscribeTracks` + `TrackEvent` added — lint clean, **breaking clean** (additive); Java/Python/TS regenerated |
+| `mvn clean verify` (M6.1 orchestrator foundation) | ✅ Executed | **17 modules, 490 tests** (+42), 0 failures — ai-orchestrator: 30 tests (registry, modality routing, descriptor validation, boundary mapper, config binding, model-agnosticism guard) |
+| Model-agnosticism guard | ✅ Executed | `ModelAgnosticismTest` scans `ai-orchestrator` source for the section 6.3 service and framework names, comments included, and fails the build on any hit. **Caught a real violation on its first run** — a javadoc in `ServiceId` used a live service name as an illustration; the prose was reworded rather than the check weakened |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

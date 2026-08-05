@@ -21,6 +21,13 @@
       <artifactId>platform-commons</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- The AI service contract (section 6.2). The orchestrator speaks these generated types at its
+         provider boundary, so mock and real services are conformant by compilation. -->
+    <dependency>
+      <groupId>pk.nust.cuas</groupId>
+      <artifactId>contracts</artifactId>
+      <version>${project.version}</version>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
