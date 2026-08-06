@@ -4,12 +4,14 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Multi-channel delivery, preferences, delivery receipts
+ * Notification-service (ARCHITECTURE.md section 4.1.9): multi-channel delivery, per-user channel
+ * preferences and quiet hours, retry with backoff, cross-channel deduplication, and delivery receipt
+ * tracking.
  *
- * <p>See ARCHITECTURE.md section 4.1 for this service's responsibilities,
- * data ownership, published and consumed events, and scaling characteristics.
- *
- * <p>Scaffold only. No beans, endpoints, or persistence are wired yet.
+ * <p>Consumes {@code alert.raised.v1}, {@code alert.escalated.v1}, {@code incident.created.v1} and
+ * {@code sensor.health.v1}; publishes {@code notification.sent.v1} and {@code notification.failed.v1};
+ * owns {@code notifydb}. Scheduling is enabled for the retry sweep in {@link
+ * pk.nust.cuas.notification.config.NotificationServiceConfig}.
  */
 @SpringBootApplication
 public class NotificationServiceApplication {

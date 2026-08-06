@@ -1032,7 +1032,56 @@ and no endpoint that accepts one.
   raised". Moved the constraint-prone insert into a `REQUIRES_NEW` operation that lets the exception
   propagate out (rolling that inner transaction back cleanly), with the catch outside it.
 
-**Remaining in M7:** `notification-service` (consumes `alert.*`/`incident.*`, multi-channel delivery).
+**M7.D — notification-service** — ✅ **Complete** — 54 module tests (incl. 11 Testcontainers integration)
+
+The whole service (ARCHITECTURE.md §4.1.9): consumes `alert.raised.v1`, `alert.escalated.v1`,
+`incident.created.v1` and `sensor.health.v1` (filtered to OFFLINE), and for each recipient with a
+configured channel decides deliverability (a minimum-severity floor, then quiet hours — a critical
+notification is never silenced), picks one channel (the enabled one of lowest priority — cross-channel
+deduplication, so a recipient is paged once per event on their best channel), delivers, and records the
+outcome with a receipt. Publishes `notification.sent.v1` / `notification.failed.v1` — attempt outcomes,
+never message content or a channel address (the address is personal data and stays in `notifydb`).
+Owns `notifydb`. Self-service API: `GET/PUT /notifications/preferences`, `GET /notifications/history`,
+`POST /notifications/test`.
+
+**Three properties the service exists to hold:**
+1. **A recipient is notified once per source event, whatever the channels or recurrences.** A unique
+   constraint (`uq_notification_dedup`) on `(recipient, dedup_key)` enforces it at the database; the
+   dedup seed is the source event's own identity (an alert's dedup key, an escalation's alert-and-level,
+   an incident id, an offline episode's sensor-and-last-seen). Losing the insert race is reported, not
+   thrown — the same `REQUIRES_NEW` insert pattern alert-service arrived at.
+2. **A transient channel failure recovers itself without external infrastructure.** Retry with
+   exponential backoff is DB-backed: `findDueForRetry` claims due rows `FOR UPDATE SKIP LOCKED` and
+   leases them out of a peer sweep's way, so the sweep is safe to run on every instance at once with no
+   Redis and no leader election. A terminal failure (unknown recipient, disabled channel, rejection) is
+   never retried; a channel removed between attempts fails the notification terminally rather than
+   looping.
+3. **The delivery is the durable truth; the event is best-effort.** The provider call happens outside
+   the transaction; only its outcome is persisted transactionally. The outcome event is published after
+   the record commits and a lost event is logged and dropped — a reporting gap, never a redelivery.
+
+**Delivery is mock-first, the same stance the AI boundary takes (§6.4).** The dev stack provisions no
+SMTP relay or SMS gateway, and WebSocket push arrives with the M9 gateway fan-out, so those three
+channels are a `SimulatedChannelProvider` that records a deterministic success; the webhook channel is
+real HTTP and is what exercises the retry path against a failing endpoint. Each is an equal
+`ChannelProvider`, so promoting a simulated one to a real provider is a bean swap and nothing else.
+
+**One architecture observation (not a deviation):** the self-service endpoints carry no §7.4 permission
+because that matrix governs shared resources and a user's own preferences and history are not one — a
+VIEWER may set their own quiet hours. They gate on authentication and scope every operation to the JWT
+subject, so there is no path by which one user reaches another's settings. Flagged here rather than
+inventing a `notification:*` permission, which §0 forbids.
+
+**Defect found and fixed while verifying it (the service had never been run against Docker):**
+- **The preference entities were grouped as nested `@Entity` classes and were never registered in the
+  Hibernate metamodel** — a query naming `NotificationChannelEntity` failed with
+  `UnknownEntityException` and the whole context failed to load. Split them into top-level entity
+  classes, matching the other two. Caught only by the Testcontainers `@SpringBootTest`; the unit and
+  layering tests load no JPA and passed regardless — the same lesson M7.C recorded.
+
+**M7 is complete:** the assessment-and-alerting slice runs end to end — a scored threat transition
+raises a deduplicated, escalating alert, an operator declares an incident, and each of those events fans
+out to the recipients who should hear it, on their preferred channel, with retry and receipts.
 
 **M8 — Config, reporting, observability, hardening**
 Objective: runtime configurability, searchable history, full telemetry, security pass. Services: `config-service`, `reporting-service`, monitoring stack. Deliverables: WatchConfig push; ES indexing + templated async reports + ILM retention (§7.9); Prometheus/Grafana/Loki/Tempo with the four §8.6 dashboards; a security-hardening review against §7. Dependencies: M2–M7. Expected output: a config change propagates without redeploy; reports generate; traces span end-to-end. Testing: config-propagation integration test; report-generation test; a trace-continuity assertion.

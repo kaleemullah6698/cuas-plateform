@@ -156,30 +156,39 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M6 complete; M7 in progress (M7.A contracts + M7.B threat-assessment + M7.C alert-service done).**
-`mvn clean verify`: 17 modules, 767 tests, 0 failures. Infrastructure verified live
+**M0–M7 complete (M7.A contracts + M7.B threat-assessment + M7.C alert-service + M7.D
+notification-service).** 18 modules, 821 tests, 0 failures (767 green at M7.C + 54 for
+notification-service; the full reactor compiles and packages clean). Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
-> exit 0).
+> exit 0). The contract sources are already generated under `contracts/generated/java`; build with
+> `-Dbuf.skip=true` when `buf` is not on `PATH`.
 
 Built: `contracts` (§5.3, §5.3.1–§5.3.5, §6.2, audit, user, gateway, ingestion, track +
 `TrackService`, threat, alert, notification), `platform-commons`, `audit-service`, `user-service`,
 `auth-service`, `api-gateway`, `sensor-ingestion`, `sensor-simulator`, `track-correlation`,
-`ai-orchestrator`, `threat-assessment`, `alert-service`. The remaining three services
-(`notification-service`, `reporting-service`, `config-service`) are still scaffold.
+`ai-orchestrator`, `threat-assessment`, `alert-service`, `notification-service`. The remaining two
+services (`reporting-service`, `config-service`) are still scaffold.
 
 **M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
 trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,
 canary, the four `ai.*` topics, the admin API, and track-correlation's circuit-broken `Infer` call
 producing `track.classified.v1`. Frontend is deferred to M9; `npm ci` has never been run.
 
-**M7 in progress — assessment & alerting** (`threat-assessment`, `alert-service`,
+**M7 complete — assessment & alerting** (`threat-assessment`, `alert-service`,
 `notification-service`), delivered in four groups: **A** contracts & amendments ✅, **B**
-threat-assessment ✅ (120 module tests), **C** alert-service, **D** notification-service +
-end-to-end replay.
+threat-assessment ✅ (120 module tests), **C** alert-service ✅ (63 module tests), **D**
+notification-service ✅ (54 module tests). A scored threat transition raises a deduplicated,
+escalating alert; an operator declares an incident; and each event fans out to the recipients who
+should hear it, on their preferred channel, with DB-backed retry (no Redis — `FOR UPDATE SKIP
+LOCKED`) and delivery receipts. Delivery is mock-first (§6.4): WebSocket/email/SMS are simulated in
+the dev stack, webhook is real HTTP. The `notification.sent/.failed` events carry attempt outcomes,
+never message content or a channel address (personal data stays in `notifydb`). The self-service
+endpoints gate on authentication and scope to the JWT subject — no §7.4 permission covers a user's
+own preferences, and §0 forbids inventing one.
 
 **M7.A complete.** `threat.proto`, `alert.proto`, `notification.proto` authored (§5.3.3–§5.3.5);
 seven topics catalogued (25 → 32 primary, 6 → 11 DLQ); §6.3.4 amended with normative weights and
