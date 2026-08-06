@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+// Configuration schema — ARCHITECTURE.md sections 4.1.12, 5.2.
+//
+// Runtime configuration without redeploy: the sensor registry, threat-policy thresholds, AI service
+// endpoints and model versions, feature flags, retention policy and protected-asset geometry, each a
+// namespace with a version history. Section 4.1.12 names the four config topics and the WatchConfig
+// stream but does not define their fields; they are defined here and ARCHITECTURE.md sections 4.1.12
+// and 5.2 are amended to match — the amendment adds platform.config.policy.updated.v1 and
+// platform.config.ai.updated.v1 to the section 5.2 catalogue, which named only the .updated and
+// .sensor variants.
+//
+// A namespace's value travels as canonical JSON, not as a typed message per namespace. The
+// namespaces are open-ended by design (a new policy field, a new feature flag) and each has its own
+// validated schema held in configdb; freezing every one into protobuf here would make adding a
+// feature flag a contract change, which is the opposite of what a configuration service is for.
+// Consumers that need a typed view parse the JSON against the schema they already hold.
+package pk.nust.cuas.config.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.config.v1";
+option java_outer_classname = "ConfigProto";
+
+// The configuration namespaces (section 4.1.12). Each is versioned and pushed independently, so a
+// sensor registration and a policy retune do not invalidate each other's cached value.
+enum ConfigNamespace {
+  CONFIG_NAMESPACE_UNSPECIFIED      = 0;
+  CONFIG_NAMESPACE_SENSOR           = 1;  // the sensor registry
+  CONFIG_NAMESPACE_POLICY           = 2;  // threat-scoring thresholds and weights (section 6.3.4)
+  CONFIG_NAMESPACE_AI               = 3;  // AI service endpoints and model versions (section 6.1)
+  CONFIG_NAMESPACE_FEATURE_FLAG     = 4;
+  CONFIG_NAMESPACE_RETENTION        = 5;  // per-store retention policy (section 7.9)
+  CONFIG_NAMESPACE_PROTECTED_ASSET  = 6;  // protected-asset geometry (section 4.1.12)
+  CONFIG_NAMESPACE_GENERAL          = 7;
+}
+
+// A configuration namespace's current value, carried on the four platform.config.*.updated topics
+// and streamed to a WatchConfig subscriber.
+//
+// The topics are compact and keyed by namespace, so the latest value for a namespace is always the
+// one a late consumer reads — which is why the whole current value travels, not a diff. The diff
+// (before → after) is an audit concern and lives in configdb's change log, not on the wire.
+message ConfigUpdated {
+  string          namespace = 1;   // the namespace key, e.g. "policy" or "sensor:RF-NE-02"
+  ConfigNamespace kind      = 2;
+  uint64          version   = 3;   // monotonic per namespace; a rollback publishes a new, higher one
+
+  // The namespace's current value as canonical JSON, validated against its configdb schema before
+  // publication. Empty only when the namespace was deleted.
+  string value_json = 10;
+  bool   deleted    = 11;
+
+  // Who changed it and why. A configuration change is a critical action (section 7.4); PUT requires a
+  // justification, and it is carried here so a consumer's audit trail can record the reason without a
+  // second call.
+  string actor_id       = 20;
+  string justification  = 21;
+
+  google.protobuf.Timestamp updated_at = 30;
+
+  string schema_version = 40;   // this event's schema version, e.g. "1.0.0"
+  string correlation_id = 41;
+}
+
+// The WatchConfig server stream (section 4.1.12): a client subscribes to the namespaces it cares
+// about and receives the current value of each immediately, then every subsequent change. This is
+// what makes configuration pushed rather than polled in the hot path (section 4.2, rule 3) — a
+// pipeline service holds a local cache and never calls the config service per request.
+service ConfigService {
+  rpc WatchConfig (WatchConfigRequest) returns (stream ConfigUpdated);
+}
+
+message WatchConfigRequest {
+  // The namespaces to watch. An empty list watches every namespace — the sensible default for a
+  // service that mirrors the whole configuration. A kind filter narrows a watch to one namespace
+  // family (all sensors, all feature flags) without naming each key.
+  repeated string          namespaces = 1;
+  repeated ConfigNamespace kinds      = 2;
+
+  // The subscriber's identity, for the config service's connection log. Not an authorisation input —
+  // the stream is authorised at the gRPC boundary by the caller's mTLS certificate (section 7.2).
+  string subscriber_id = 10;
+}

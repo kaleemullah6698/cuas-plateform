@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+// Reporting schema — ARCHITECTURE.md sections 4.1.10, 5.2.
+//
+// Templated, asynchronously-generated reports (incident, daily summary, sensor performance, fusion
+// efficacy) exported as PDF, JSON or CSV. Section 4.1.10 names the three report events but does not
+// define their fields; they are defined here and ARCHITECTURE.md sections 4.1.10 and 5.2 are amended
+// to match — the amendment adds report.generation.started.v1, report.generated.v1 and
+// report.generation.failed.v1 to the section 5.2 catalogue, which did not list them.
+//
+// A report event carries a reference to the artifact, never the artifact itself. A generated PDF is
+// megabytes; putting it on a Kafka topic the gateway and audit both see would be the same mistake
+// section 5.3 forbids for IQ captures and evidence bundles. `artifact_uri` addresses the artifact
+// store; `sha256` is what keeps an exported report verifiable after it leaves the platform.
+package pk.nust.cuas.report.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.report.v1";
+option java_outer_classname = "ReportProto";
+
+// The report templates section 4.1.10 ships. A closed set: a new report is a new template row and a
+// generator, agreed as a change, not a value a caller invents.
+enum ReportType {
+  REPORT_TYPE_UNSPECIFIED        = 0;
+  REPORT_TYPE_INCIDENT           = 1;  // one incident, its timeline and evidence
+  REPORT_TYPE_DAILY_SUMMARY      = 2;  // a day's tracks, alerts and incidents
+  REPORT_TYPE_SENSOR_PERFORMANCE = 3;  // per-sensor uptime, throughput, drop rate
+  REPORT_TYPE_FUSION_EFFICACY    = 4;  // true- vs false-positive ratio, AI mock-vs-real
+}
+
+// The export formats section 4.1.10 supports.
+enum ReportFormat {
+  REPORT_FORMAT_UNSPECIFIED = 0;
+  REPORT_FORMAT_PDF         = 1;
+  REPORT_FORMAT_JSON        = 2;
+  REPORT_FORMAT_CSV         = 3;
+}
+
+// Why a generation failed. The distinction that matters is whether the request itself was
+// impossible (no data in range, an unknown incident) or the generator faulted — the first is the
+// caller's to fix, the second is the platform's.
+enum ReportFailureReason {
+  REPORT_FAILURE_REASON_UNSPECIFIED   = 0;
+  REPORT_FAILURE_REASON_NO_DATA       = 1;  // the query matched nothing in range — terminal
+  REPORT_FAILURE_REASON_INVALID_RANGE = 2;  // an unusable time range or subject — terminal
+  REPORT_FAILURE_REASON_SOURCE_ERROR  = 3;  // Elasticsearch or a source store was unreachable
+  REPORT_FAILURE_REASON_RENDER_ERROR  = 4;  // the artifact could not be rendered or stored
+}
+
+// A report generation has been accepted and started, carried on report.generation.started.v1.
+// Emitted when POST /reports/generate returns its 202 (section 4.1.10), so a consumer sees the job
+// exists before it completes.
+message ReportGenerationStarted {
+  string       report_id = 1;   // UUIDv7 — the job id returned by the 202
+  ReportType   type      = 2;
+  ReportFormat format     = 3;
+
+  string requested_by = 10;     // user id
+  // The reporting window and subject the job covers, as canonical JSON — an incident id, a date, a
+  // sensor id, a date range. Kept as JSON for the same reason config values are: the parameters
+  // differ per report type and a typed field per type would couple the event to the template set.
+  string parameters_json = 11;
+
+  google.protobuf.Timestamp started_at = 20;
+
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+
+// A report finished successfully, carried on report.generated.v1.
+message ReportGenerated {
+  string       report_id = 1;
+  ReportType   type      = 2;
+  ReportFormat format     = 3;
+
+  string requested_by = 10;
+
+  string artifact_uri = 20;   // artifact-store URI — never an inline payload
+  string sha256       = 21;   // content hash, so an exported report stays verifiable
+  uint64 size_bytes   = 22;
+  uint64 row_count    = 23;   // rows/records the report summarises, for a quick sense of scale
+
+  uint32 generation_ms = 30;  // how long it took to build
+
+  google.protobuf.Timestamp generated_at = 40;
+
+  string schema_version = 50;
+  string correlation_id = 51;
+}
+
+// A report generation failed, carried on report.generation.failed.v1.
+message ReportGenerationFailed {
+  string     report_id = 1;
+  ReportType type      = 2;
+
+  string requested_by = 10;
+
+  ReportFailureReason reason = 20;
+  string              detail = 21;  // operator-facing detail; never a stack trace
+
+  google.protobuf.Timestamp failed_at = 30;
+
+  string schema_version = 40;
+  string correlation_id = 41;
+}

@@ -1247,8 +1247,13 @@ flowchart LR
 | `incident.closed.v1` | `incidentId` | 3 | ∞ | delete | Alert | Notification, Reporting, Audit |
 | `notification.sent.v1` | `recipientUserId` | 3 | 30 d | delete | Notification | Audit, Reporting |
 | `notification.failed.v1` | `recipientUserId` | 3 | 30 d | delete | Notification | Alert, Reporting, Audit |
+| `report.generation.started.v1` | `reportId` | 3 | 30 d | delete | Reporting | Gateway, Audit |
+| `report.generated.v1` | `reportId` | 3 | 90 d | delete | Reporting | Gateway, Audit |
+| `report.generation.failed.v1` | `reportId` | 3 | 30 d | delete | Reporting | Gateway, Audit |
 | `platform.config.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | All services |
 | `platform.config.sensor.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | Sensor Ingestion |
+| `platform.config.policy.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | Threat Assessment |
+| `platform.config.ai.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | AI Orchestrator |
 | `platform.audit.v1` | `actorId` | 3 | ∞ | delete | All | Audit |
 | `platform.user.deactivated.v1` | `userId` | 3 | ∞ | delete | User & RBAC | Authentication |
 | `platform.gateway.access.v1` | `userId` | 3 | 7 d | delete | API Gateway | Reporting |
