@@ -899,10 +899,19 @@ to break), `mvn -pl contracts -am verify` green.
 
 1. **The Low/Medium/High thresholds did not exist.** §2.4.2 fixes only `CRITICAL ≥ 0.80`; the other
    three boundaries were absent, so a four-level classification was unimplementable. §6.3.4 amended
-   with `LOW < 0.30`, `MEDIUM 0.30–0.55`, `HIGH 0.55–0.80`, chosen to reproduce §2.4.2's own rendered
-   rows (0.853→CRIT, 0.74/0.71→HIGH, 0.58/0.52→MED, 0.31→LOW) rather than invented. The §2.4.2
-   weights (0.40/0.25/0.20/0.10/0.05) are promoted from a wireframe example to normative defaults.
-   All of it is policy data, not constants — retuning is a `policy_versions` row with an audit trail.
+   with `LOW < 0.30`, `MEDIUM 0.30–0.55`, `HIGH 0.55–0.80`. The §2.4.2 weights
+   (0.40/0.25/0.20/0.10/0.05) are promoted from a wireframe example to normative defaults and
+   reproduce §2.4.2's one worked composite exactly (0.8525 ≈ 0.853 → CRITICAL). All of it is policy
+   data, not constants — retuning is a `policy_versions` row with an audit trail.
+
+   **Justification corrected during M7.B.** This entry originally claimed the MEDIUM and HIGH
+   boundaries reproduced §2.4.2's rendered console rows. That was wrong: the console's `CONF` column
+   is *classification confidence*, not composite score, so those rows constrain nothing about where a
+   level boundary sits. §6.3.4 and this entry now state plainly that `CRITICAL ≥ 0.80` is the only
+   boundary the specification fixed, and that the other two are a judgement — bands of comparable
+   width (0.30/0.25/0.25/0.20) below that anchor, expected to be retuned per deployment. **The
+   thresholds themselves did not change**; only a justification that had claimed more support than it
+   had. Caught by writing the test that was supposed to assert the claim.
 
 2. **`sensor.health.degraded.v1` and `sensor.health.offline.v1` do not exist.** §4.1.8 and §4.1.9
    named them as consumed, but §5.2 never catalogued them and §5.3.1 produces a single
@@ -942,6 +951,57 @@ topics whose retention was chosen for telemetry (§7.9).
 
 `verify-infra.sh`'s topic assertion was stale (`>= 26` against an actual 31) and is corrected to
 `>= 43` with the twelve new topics named explicitly.
+
+**M7.B — threat-assessment** — ✅ **Complete** — 120 module tests
+
+The whole service: the weighted rules engine, `threatdb` with immutable policy versioning, both
+consumers, all three published topics, and the four §4.1.7 endpoints. It scores, levels and advises
+with **zero models present** — the same property §6.4 gives the rest of Track A — because the AI
+residual arrives as an event weighed as one factor of five, never as a call.
+
+**Three architectural decisions worth recording:**
+
+1. **A missing factor is a type, not a convention.** `ThreatFactor` holds either a value or a stated
+   reason it has none; the constructor rejects both-or-neither. §6.3.4's confidence requirement then
+   cannot be forgotten in a new branch, and the shortfall surfaces as `AssessmentConfidence
+   .availableWeight` rather than hiding inside a plausible-looking number. `ThreatAssessment.level()`
+   is likewise an `Optional` — an unassessed track has *no* level, not LOW, so no filter can sweep an
+   unjudged track into the safe bucket.
+
+2. **Closure rate is derived from the CPA geometry, not substituted.** The track contract carries
+   CPA distance, time-to-CPA and ground speed but no instantaneous range rate. Present separation is
+   `hypot(d, v·t)` under the same constant-velocity geometry the CPA itself assumes, so closure is
+   the separation lost per second. Using ground speed directly — the obvious shortcut — overstates
+   closure by more than double for a track passing *across* an asset rather than *at* it, and would
+   never have shown up as an error, only as a systematically inflated threat.
+
+3. **Idempotency keys on content, not on `(trackId, observedAt)`.** A new inference for an unchanged
+   track estimate is a genuinely different question and shares that key exactly. The guard is a
+   SHA-256 over evidence plus policy version, unique-constrained in `assessments` — the same
+   construction as the orchestrator's request hash, for the same reason. A duplicate is *reported*,
+   not thrown: at-least-once makes it an expected event.
+
+**Also:** rules are data (`rule_definitions`) but their conditions are a closed record and their
+output a closed enum, constrained again by a `CHECK` at the database boundary — configuration able to
+introduce a new kind of instruction would move §0's scope limit into a table no code review sees.
+`LayeringTest` now fails the build if `domain/` grows a framework import or if a gRPC client appears
+anywhere in the module.
+
+**Defects found and fixed during M7.B:**
+- **`JpaThreatPolicyRepository.publish` wrote the version row before its parent policy row** — a
+  foreign-key violation on the exact path a fresh deployment takes to seed its §6.3.4 defaults, so
+  the service could never have started against an empty database. Caught by the Testcontainers
+  suite; a unit test with a mocked repository would not have seen it.
+- **The M7.A threshold justification was wrong** (see the correction under M7.A above). The
+  thresholds are unchanged; the claim that they reproduced §2.4.2's console rows was not true, and
+  was caught by writing the test meant to assert it.
+
+**Deferred with cause:** `platform.config.policy.updated.v1` (§4.1.7, consumed) — config-service does
+not exist until M8, so `PUT /threats/policies` is the interim source, exactly as the orchestrator's
+admin API is for `platform.config.ai.updated.v1`. A policy published on one instance therefore
+reaches the others on their next restart; a poll short enough to be useful would reintroduce the
+per-assessment query the policy cache removes, and one long enough to be cheap would give a false
+impression of promptness.
 
 **M8 — Config, reporting, observability, hardening**
 Objective: runtime configurability, searchable history, full telemetry, security pass. Services: `config-service`, `reporting-service`, monitoring stack. Deliverables: WatchConfig push; ES indexing + templated async reports + ILM retention (§7.9); Prometheus/Grafana/Loki/Tempo with the four §8.6 dashboards; a security-hardening review against §7. Dependencies: M2–M7. Expected output: a config change propagates without redeploy; reports generate; traces span end-to-end. Testing: config-propagation integration test; report-generation test; a trace-continuity assertion.

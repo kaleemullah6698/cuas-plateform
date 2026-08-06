@@ -1,2 +1,17 @@
-# threat-assessment — test profile overrides
-# Placeholder.
+# threat-assessment — test profile overrides.
+#
+# The integration tests supply the datasource and Kafka through @DynamicPropertySource and drive the
+# REST API through MockMvc with an injected JWT, so the resource server's key set is never fetched;
+# the URL below is a placeholder that is never called.
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:59999/jwks
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: INFO

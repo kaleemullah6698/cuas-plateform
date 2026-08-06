@@ -1,20 +1,58 @@
-# threat-assessment — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# threat-assessment — ARCHITECTURE.md section 4.1.7
+#
+# Consumes track.updated.v1 and ai.inference.completed.v1, scores each track against the policy in
+# force, and publishes threat.assessed.v1, threat.level.changed.v1 and
+# threat.recommendation.generated.v1. Owns threatdb.
+#
+# There is no AI client here, by design. The weighted rules engine is Track A code in this service
+# (section 4.1.7); the threat-scorer residual arrives as one factor on an event, never as a
+# synchronous call, so this service scores with zero models present.
 
 spring:
   application:
     name: threat-assessment
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/threatdb
     username: ${POSTGRES_USER:cuas}
     password: ${POSTGRES_PASSWORD:}
+
   jpa:
     open-in-view: false
     hibernate:
+      # Flyway owns the schema; Hibernate validates against it and never alters it.
       ddl-auto: validate
-  flyway:
-    enabled: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: threat-assessment
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      auto-offset-reset: earliest
+      properties:
+        max.poll.records: 200
+        max.poll.interval.ms: 300000
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
 
 server:
   port: 8086

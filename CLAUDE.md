@@ -167,7 +167,7 @@ which defects it found.
 Built: `contracts` (§5.3, §5.3.1–§5.3.5, §6.2, audit, user, gateway, ingestion, track +
 `TrackService`, threat, alert, notification), `platform-commons`, `audit-service`, `user-service`,
 `auth-service`, `api-gateway`, `sensor-ingestion`, `sensor-simulator`, `track-correlation`,
-`ai-orchestrator`. The remaining five services are still scaffold.
+`ai-orchestrator`, `threat-assessment`. The remaining four services are still scaffold.
 
 **M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
 trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,
@@ -176,7 +176,8 @@ producing `track.classified.v1`. Frontend is deferred to M9; `npm ci` has never 
 
 **M7 in progress — assessment & alerting** (`threat-assessment`, `alert-service`,
 `notification-service`), delivered in four groups: **A** contracts & amendments ✅, **B**
-threat-assessment, **C** alert-service, **D** notification-service + end-to-end replay.
+threat-assessment ✅ (120 module tests), **C** alert-service, **D** notification-service +
+end-to-end replay.
 
 **M7.A complete.** `threat.proto`, `alert.proto`, `notification.proto` authored (§5.3.3–§5.3.5);
 seven topics catalogued (25 → 32 primary, 6 → 11 DLQ); §6.3.4 amended with normative weights and

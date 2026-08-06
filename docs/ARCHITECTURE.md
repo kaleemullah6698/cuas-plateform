@@ -2170,7 +2170,9 @@ Weights sum to 1.00, so the composite is in `[0,1]` by construction. **A missing
 | HIGH | `0.55 – 0.80` | `◆HIGH` |
 | CRITICAL | `≥ 0.80` | `▲CRIT` |
 
-Boundaries are lower-inclusive, upper-exclusive; `CRITICAL ≥ 0.80` is §2.4.2's own value and is what anchors the scale. They reproduce §2.4.2's own rendered rows: 0.853 → CRITICAL, 0.74 and 0.71 → HIGH, 0.58 and 0.52 → MEDIUM, 0.31 → LOW.
+Boundaries are lower-inclusive, upper-exclusive. **`CRITICAL ≥ 0.80` is §2.4.2's own value and is the only one the specification fixed;** it anchors the scale. §2.4.2 supplies exactly one worked composite — 0.853 → CRITICAL — and that arithmetic is reproduced exactly by the weights above (`0.87×0.40 + 0.92×0.25 + 0.78×0.20 + 0.71×0.10 + 0.95×0.05 = 0.8525`).
+
+**The MEDIUM and HIGH boundaries are a judgement, and are labelled as one.** They divide the range below the fixed CRITICAL anchor into bands of comparable width (0.30 / 0.25 / 0.25 / 0.20) so that no level is so narrow that a track passes through it unseen, nor so wide that it stops discriminating. Nothing in §2.4.2 derives them: the console's `CONF` column is *classification confidence*, not composite score, so its 74 %, 58 % and 31 % rows say nothing about where a level boundary sits. Any deployment is expected to retune these against its own airspace, which is why they are policy rows rather than constants.
 
 **An unassessed track is not LOW.** A track with no evaluable factor has no level (`THREAT_LEVEL_UNSPECIFIED`, rendered `○UNK`), because a track nothing has judged is not the same as a track judged harmless, and collapsing the two would let an unjudged object read as the safest thing on the screen.
 

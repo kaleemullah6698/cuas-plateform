@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -n \"^#\\\\{1,3\\\\} \" docs/ARCHITECTURE.md)"
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" docs/ARCHITECTURE.md)",
+      "PowerShell(Select-String -Path \"$env:TEMP\\\\m7b-test4.log\" -Pattern \"ERROR\" | Select-Object -First 20 | ForEach-Object { $_.Line })"
     ]
   }
 }
