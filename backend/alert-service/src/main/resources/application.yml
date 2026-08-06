@@ -1,20 +1,93 @@
-# alert-service — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# alert-service — ARCHITECTURE.md section 4.1.8
+#
+# Consumes threat.level.changed.v1, track.lost.v1, track.merged.v1 and sensor.health.v1; raises,
+# deduplicates, escalates and resolves alerts; owns incidents and their evidence bundles. Owns
+# alertdb, and uses Redis for the escalation sorted set and the leader lease.
 
 spring:
   application:
     name: alert-service
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/alertdb
     username: ${POSTGRES_USER:cuas}
     password: ${POSTGRES_PASSWORD:}
+
   jpa:
     open-in-view: false
     hibernate:
+      # Flyway owns the schema; Hibernate validates against it and never alters it.
       ddl-auto: validate
-  flyway:
-    enabled: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  # The escalation sorted set and the leader lease (section 4.1.8). Section 7.2 requires TLS + AUTH
+  # with a per-service password in production; the password comes from the environment.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: alert-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      auto-offset-reset: earliest
+      properties:
+        max.poll.records: 200
+        max.poll.interval.ms: 300000
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
+
+# Alerting tunables (see AlertProperties). Left at their documented defaults here.
+alert:
+  # Below this severity a track is visible on the console but does not interrupt anybody. An alert
+  # queue that fills with LOW tracks is one nobody reads carefully by the time something matters.
+  minimum-severity: MEDIUM
+  # How long a recurrence is folded into an open alert. Shorter at higher severity: suppression
+  # protects the operator's attention, and attention is worth spending differently per level.
+  suppression:
+    LOW: PT15M
+    MEDIUM: PT10M
+    HIGH: PT5M
+    CRITICAL: PT2M
+  # The escalation ladder, per severity. Finite by design — an alert that escalated forever would
+  # train operators to mute the channel, after which the next genuine escalation reaches nobody.
+  escalation:
+    LOW: [PT1H]
+    MEDIUM: [PT20M, PT40M]
+    HIGH: [PT5M, PT10M, PT20M]
+    CRITICAL: [PT2M, PT5M, PT10M]
+  sweep:
+    enabled: ${ALERT_SWEEP_ENABLED:true}
+    # Comfortably shorter than the shortest rung, so a deadline is never missed by a whole interval.
+    interval: PT15S
+    # Longer than the interval so a GC pause does not cost leadership; short enough that a crashed
+    # leader is replaced promptly.
+    lease-duration: PT45S
+  evidence:
+    # The filesystem adapter serves development; MinIO replaces it at M8 behind the same port.
+    root: ${ALERT_EVIDENCE_ROOT:./evidence}
 
 server:
   port: 8087

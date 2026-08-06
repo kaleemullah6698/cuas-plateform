@@ -104,6 +104,7 @@ documentation assumes.
 | `mvn clean verify` (M6.5 gRPC + canary + admin API) | ✅ Executed | ai-orchestrator: **153 tests** (+18) — canary splits 90/10 by track and holds an assignment for life, assignments are independent across services, and the admin API enforces `ai:configure` on both read and write with semantic-version and 0-100 validation |
 | `mvn clean verify` (M6.6 Track A integration) | ✅ Executed | The orchestrator serves `Infer` on 9085; track-correlation calls it deadlined and circuit-broken behind a `TrackClassifier` port, consumes `ai.inference.completed.v1`, and publishes `track.classified.v1` |
 | `buf lint` / `buf breaking` / `buf generate` (M6.6) | ✅ Executed | `TrackClassification` added to `track.proto` and set on `Track` — lint clean, **breaking clean** (additive) |
+| `mvn clean verify` (M7.C alert-service) | ✅ Executed | **17 modules, 767 tests**, 0 failures — alert-service: 63 (a full-pipeline `@SpringBootTest` and a Redis leader-election test on Testcontainers PostgreSQL + Kafka + Redis, plus domain/policy/layering unit tests). Two defects fixed: nested Spring Data repositories never created (`considerNestedRepositories`), and a rollback-only transaction on the dedup-race insert (moved to `REQUIRES_NEW`) |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

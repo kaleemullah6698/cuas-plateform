@@ -1,2 +1,23 @@
-# alert-service — test profile overrides
-# Placeholder.
+# alert-service — test profile overrides.
+#
+# The integration tests supply the datasource, Redis and Kafka through @DynamicPropertySource and
+# drive the REST API through MockMvc with an injected JWT, so the resource server's key set is never
+# fetched; the URL below is a placeholder that is never called.
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:59999/jwks
+
+logging:
+  level:
+    root: WARN
+    pk.nust.cuas: INFO
+
+alert:
+  sweep:
+    # The suite drives EscalationSweep directly so it can assert on one pass. A background scheduler
+    # would escalate an alert out from under an assertion and make the tests intermittently red.
+    enabled: false

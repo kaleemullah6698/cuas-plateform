@@ -156,7 +156,8 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M6 complete.** `mvn clean verify`: 17 modules, 607 tests, 0 failures. Infrastructure verified live
+**M0–M6 complete; M7 in progress (M7.A contracts + M7.B threat-assessment + M7.C alert-service done).**
+`mvn clean verify`: 17 modules, 767 tests, 0 failures. Infrastructure verified live
 (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
 which defects it found.
 
@@ -167,7 +168,8 @@ which defects it found.
 Built: `contracts` (§5.3, §5.3.1–§5.3.5, §6.2, audit, user, gateway, ingestion, track +
 `TrackService`, threat, alert, notification), `platform-commons`, `audit-service`, `user-service`,
 `auth-service`, `api-gateway`, `sensor-ingestion`, `sensor-simulator`, `track-correlation`,
-`ai-orchestrator`, `threat-assessment`. The remaining four services are still scaffold.
+`ai-orchestrator`, `threat-assessment`, `alert-service`. The remaining three services
+(`notification-service`, `reporting-service`, `config-service`) are still scaffold.
 
 **M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
 trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,

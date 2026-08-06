@@ -1003,6 +1003,37 @@ reaches the others on their next restart; a poll short enough to be useful would
 per-assessment query the policy cache removes, and one long enough to be cheap would give a false
 impression of promptness.
 
+**M7.C — alert-service** — ✅ **Complete** — 63 module tests (incl. 14 Testcontainers integration)
+
+The whole service (ARCHITECTURE.md §4.1.8): raises alerts from `threat.level.changed.v1`, deduplicates
+recurrences into a suppression window, escalates unacknowledged alerts on a Redis sorted-set schedule
+under leader election, closes alerts whose track was lost or merged, and owns operator-declared
+incidents with their timelines, notes and evidence bundles. Owns `alertdb`. Every relayed
+recommendation is advisory — the §6.3.4 closed five, an engagement action with exactly one legal value,
+and no endpoint that accepts one.
+
+**Two properties the service exists to hold:**
+1. **Duplicate alerts are impossible, not merely unlikely.** A partial unique index
+   (`uq_alert_open_dedup`) on the deduplication key enforces it at the database, because §5.7 names a
+   duplicate as the failure that destroys operator trust fastest. Losing the insert race — two
+   instances raising the same transition after a rebalance — is reported, not thrown.
+2. **The advisory boundary is closed in code and at the database.** The recommendation vocabulary is
+   §6.3.4's five; the decision chain's engagement action has one legal value; a `CHECK` at the row
+   boundary refuses anything else.
+
+**Defects found and fixed while verifying it (the service had never been run against Docker):**
+- **The Spring Data JPA repositories were grouped as nested interfaces, so none were created** —
+  Spring Data's `considerNestedRepositories` defaults to false, so the whole application context
+  failed to load. Enabled it on the root class. Caught only by the Testcontainers `@SpringBootTest`;
+  the unit and layering tests load no JPA and passed regardless.
+- **The graceful dedup-race handling did not actually work.** `raise()` caught the unique-constraint
+  violation inside its own `@Transactional`, but the violation had already marked that transaction
+  rollback-only, so the commit threw `UnexpectedRollbackException` rather than returning "already
+  raised". Moved the constraint-prone insert into a `REQUIRES_NEW` operation that lets the exception
+  propagate out (rolling that inner transaction back cleanly), with the catch outside it.
+
+**Remaining in M7:** `notification-service` (consumes `alert.*`/`incident.*`, multi-channel delivery).
+
 **M8 — Config, reporting, observability, hardening**
 Objective: runtime configurability, searchable history, full telemetry, security pass. Services: `config-service`, `reporting-service`, monitoring stack. Deliverables: WatchConfig push; ES indexing + templated async reports + ILM retention (§7.9); Prometheus/Grafana/Loki/Tempo with the four §8.6 dashboards; a security-hardening review against §7. Dependencies: M2–M7. Expected output: a config change propagates without redeploy; reports generate; traces span end-to-end. Testing: config-propagation integration test; report-generation test; a trace-continuity assertion.
 
