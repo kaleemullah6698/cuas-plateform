@@ -3,9 +3,9 @@
 # Infrastructure acceptance test — closes the M0/M1 infra verification items.
 #
 # Brings up the infra profile, waits for every service to become healthy, applies the
-# database and topic catalogues, and asserts that all ten databases and all twenty-four
-# Kafka topics exist and that Schema Registry, Redis, and MinIO respond. Idempotent and
-# safe to re-run.
+# database and topic catalogues, and asserts that all ten databases and every Kafka topic in
+# the ARCHITECTURE.md section 5.2 catalogue exists, and that Schema Registry, Redis, and MinIO
+# respond. Idempotent and safe to re-run.
 #
 # Prerequisite: Docker Desktop running, with Compose v2 (`docker compose version`).
 #
@@ -91,15 +91,21 @@ else
   fail "create-topics.sh applied"
 fi
 
-echo "== 6. Topics exist (expect 26: 20 primary + 6 DLQ) =="
+# 43 = 32 primary + 11 DLQ, as declared in create-topics.sh. Asserted as a floor rather than an
+# equality: a milestone adds topics to the catalogue, and a >= check keeps this script from
+# failing on the addition itself while still catching a topic that failed to create.
+echo "== 6. Topics exist (expect 43: 32 primary + 11 DLQ) =="
 ACTUAL_TOPICS=$(dc exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null | tr -d '\r')
 TOPIC_COUNT=$(echo "$ACTUAL_TOPICS" | grep -cE '\.v1$|\.dlq$' || true)
 for t in sensor.detection.raw.v1 sensor.detection.normalized.v1 track.created.v1 \
-         ai.inference.completed.v1 threat.level.changed.v1 alert.raised.v1 \
+         ai.inference.completed.v1 threat.level.changed.v1 \
+         threat.recommendation.generated.v1 alert.raised.v1 alert.escalated.v1 \
+         alert.resolved.v1 incident.updated.v1 incident.closed.v1 \
+         notification.sent.v1 notification.failed.v1 \
          platform.audit.v1 platform.config.updated.v1 alert.raised.v1.dlq; do
   if echo "$ACTUAL_TOPICS" | grep -qx "$t"; then pass "topic $t"; else fail "topic $t"; fi
 done
-if [ "$TOPIC_COUNT" -ge 26 ]; then pass "topic count = $TOPIC_COUNT (>= 26)"; else fail "topic count = $TOPIC_COUNT (< 26)"; fi
+if [ "$TOPIC_COUNT" -ge 43 ]; then pass "topic count = $TOPIC_COUNT (>= 43)"; else fail "topic count = $TOPIC_COUNT (< 43)"; fi
 
 echo "== 7. Schema Registry / Redis / MinIO reachable =="
 check_sr    >/dev/null 2>&1 && pass "schema-registry /subjects"  || fail "schema-registry /subjects"

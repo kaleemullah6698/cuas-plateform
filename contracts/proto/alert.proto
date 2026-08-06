@@ -1,0 +1,297 @@
+syntax = "proto3";
+
+// Alert and incident schema — ARCHITECTURE.md sections 4.1.8, 5.3.4, 2.4.3.
+//
+// The shape of an alert and an incident as they are published on alert.raised.v1,
+// alert.acknowledged.v1, alert.escalated.v1, alert.resolved.v1, incident.created.v1,
+// incident.updated.v1 and incident.closed.v1. Section 4.1.8 names these events but does not
+// define their fields; they are defined here and ARCHITECTURE.md section 5.3.4 is amended to
+// match.
+//
+// Severity reuses threat.v1.ThreatLevel rather than declaring a parallel scale. An alert's
+// severity *is* the threat level that raised it; a second four-value vocabulary would be a second
+// source of truth for one fact, and the two would drift the first time a threshold moved.
+package pk.nust.cuas.alert.v1;
+
+import "google/protobuf/timestamp.proto";
+import "threat.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.alert.v1";
+option java_outer_classname = "AlertProto";
+
+// Alert lifecycle (section 4.1.8: raised → acknowledged → escalated → resolved, plus suppressed).
+// RESOLVED is terminal. SUPPRESSED marks an alert folded into an open one by the deduplication
+// window rather than delivered on its own.
+enum AlertStatus {
+  ALERT_STATUS_UNSPECIFIED  = 0;
+  ALERT_STATUS_RAISED       = 1;
+  ALERT_STATUS_ACKNOWLEDGED = 2;
+  ALERT_STATUS_ESCALATED    = 3;
+  ALERT_STATUS_RESOLVED     = 4;
+  ALERT_STATUS_SUPPRESSED   = 5;
+}
+
+// How an alert ended. Recorded at resolution and carried into reporting, where the ratio of
+// TRUE_POSITIVE to FALSE_POSITIVE is the measure of whether the scoring policy is calibrated.
+// INCONCLUSIVE is deliberately available: forcing a verdict the operator does not have would
+// corrupt exactly the statistic the field exists to produce.
+enum AlertDisposition {
+  ALERT_DISPOSITION_UNSPECIFIED   = 0;
+  ALERT_DISPOSITION_TRUE_POSITIVE = 1;
+  ALERT_DISPOSITION_FALSE_POSITIVE = 2;
+  ALERT_DISPOSITION_BENIGN        = 3;   // real object, no threat — a bird, a permitted flight
+  ALERT_DISPOSITION_DUPLICATE     = 4;
+  ALERT_DISPOSITION_INCONCLUSIVE  = 5;
+}
+
+// An operator-facing alert, carried on alert.raised.v1.
+message Alert {
+  string      alert_id  = 1;   // UUIDv7 — time-sortable
+  string      reference = 2;   // operator-facing handle, e.g. "ALT-9912" (section 2.4.3)
+  AlertStatus status    = 3;
+
+  // The deduplication identity: same track, same threat level, same policy. Two assessments that
+  // produce this key inside the suppression window are one alert with occurrence_count > 1, not
+  // two rows on the operator's screen. Carried on the event so a consumer can deduplicate the
+  // same way the service does, and backed by a unique constraint in alertdb — section 5.7 names
+  // duplicate alerts as the failure that destroys operator trust faster than any other, which is
+  // not a property to leave to application logic alone.
+  string dedup_key = 4;
+
+  pk.nust.cuas.threat.v1.ThreatLevel     severity       = 10;
+  pk.nust.cuas.threat.v1.Recommendation  recommendation = 11;
+  float                                  threat_score   = 12;
+
+  string track_id      = 20;
+  string sector_id     = 21;
+  string assessment_id = 22;   // the assessment that justified raising this alert
+
+  string title   = 30;   // one line, e.g. "CRITICAL — TRK-0473 closing on SITE-1"
+  string summary = 31;   // the operator-facing rationale, from the recommendation
+
+  google.protobuf.Timestamp raised_at       = 40;
+  google.protobuf.Timestamp acknowledged_at = 41;
+  google.protobuf.Timestamp resolved_at     = 42;
+
+  // Escalation state (section 4.1.8, Redis sorted-set scheduler). escalates_at is when the next
+  // unacknowledged escalation fires; unset once the alert is acknowledged or resolved.
+  uint32                    escalation_level = 43;
+  google.protobuf.Timestamp escalates_at     = 44;
+
+  // How many times this dedup_key recurred inside the suppression window. 1 for a first raise.
+  uint32 occurrence_count = 45;
+
+  string incident_id = 50;   // set once an operator declares an incident from this alert
+
+  string schema_version = 60;  // e.g. "1.0.0"
+  string correlation_id = 61;  // end-to-end trace, carried from the triggering assessment
+}
+
+// Carried on alert.acknowledged.v1. An acknowledgement stops the escalation timer, so it names
+// the actor: the audit chain (section 7.5) must be able to answer who silenced an alert.
+message AlertAcknowledged {
+  string alert_id    = 1;
+  string reference   = 2;
+  string track_id    = 3;
+
+  string actor_id           = 10;  // user id
+  string actor_display_name = 11;
+  string note               = 12;
+
+  google.protobuf.Timestamp acknowledged_at = 20;
+
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+
+// Carried on alert.escalated.v1 — emitted by the escalation scheduler, not by an operator.
+message AlertEscalated {
+  string alert_id  = 1;
+  string reference = 2;
+  string track_id  = 3;
+
+  uint32 previous_level = 10;
+  uint32 current_level  = 11;
+
+  // Why the timer fired. Reported explicitly so notification-service can word an unacknowledged
+  // escalation differently from one driven by a rising threat level.
+  EscalationTrigger trigger = 12;
+
+  pk.nust.cuas.threat.v1.ThreatLevel severity = 13;
+
+  google.protobuf.Timestamp escalated_at     = 20;
+  google.protobuf.Timestamp next_escalate_at = 21;  // unset at the terminal escalation level
+
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+
+enum EscalationTrigger {
+  ESCALATION_TRIGGER_UNSPECIFIED    = 0;
+  ESCALATION_TRIGGER_UNACKNOWLEDGED = 1;  // the acknowledgement window elapsed
+  ESCALATION_TRIGGER_LEVEL_INCREASE = 2;  // the threat level rose while the alert was open
+  ESCALATION_TRIGGER_MANUAL         = 3;  // an operator escalated deliberately
+}
+
+// Carried on alert.resolved.v1.
+message AlertResolved {
+  string alert_id  = 1;
+  string reference = 2;
+  string track_id  = 3;
+
+  AlertDisposition disposition = 10;
+  string           note        = 11;
+
+  string actor_id           = 20;
+  string actor_display_name = 21;
+
+  // True when the alert was closed by the system rather than an operator — the track was lost or
+  // merged and the alert had nothing left to describe. Distinguished from an operator resolution
+  // because an auto-closed alert is not evidence that anybody looked at it.
+  bool auto_resolved = 22;
+
+  google.protobuf.Timestamp resolved_at = 30;
+
+  string schema_version = 40;
+  string correlation_id = 41;
+}
+
+// ── Incidents ────────────────────────────────────────────────────────────────────────────────
+
+// Incident lifecycle, matching the states section 2.4.3 renders in its header.
+enum IncidentStatus {
+  INCIDENT_STATUS_UNSPECIFIED  = 0;
+  INCIDENT_STATUS_OPEN         = 1;
+  INCIDENT_STATUS_UNDER_REVIEW = 2;
+  INCIDENT_STATUS_CLOSED       = 3;
+}
+
+// An operator-declared investigation, carried on incident.created.v1, incident.updated.v1 and
+// incident.closed.v1.
+//
+// An incident is always declared by a person. Section 2.4.3's decision chain records "OPERATOR
+// DECIDED — escalate to incident" as a human act, and a system that could open one by itself
+// would make that record untrue.
+message Incident {
+  string         incident_id = 1;   // UUIDv7
+  string         reference   = 2;   // operator-facing handle, e.g. "INC-2026-0087" (section 2.4.3)
+  IncidentStatus status      = 3;
+
+  pk.nust.cuas.threat.v1.ThreatLevel severity = 10;
+  string                             title    = 11;
+  string                             sector_id = 12;
+
+  repeated string track_ids = 20;   // may grow: one investigation can span several tracks
+  repeated string alert_ids = 21;
+
+  string declared_by           = 30;  // user id — never a service
+  string declared_by_name      = 31;
+  string assigned_to           = 32;
+  string assigned_to_name      = 33;
+
+  google.protobuf.Timestamp opened_at = 40;
+  google.protobuf.Timestamp closed_at = 41;
+
+  AlertDisposition closure_disposition = 42;  // set only when status is CLOSED
+  string           closure_summary     = 43;
+
+  DecisionChain decision_chain = 50;
+
+  string schema_version = 60;
+  string correlation_id = 61;
+}
+
+// One entry in section 2.4.3's event sequence, carried on incident.updated.v1.
+//
+// The timeline is assembled from the platform's own events rather than written by hand, so an
+// entry names the event that produced it. `actor_id` is empty for a system entry, which is what
+// distinguishes "SYS track TRK-0473 created" from "USER K.Ullah acknowledged".
+message IncidentEvent {
+  string incident_id = 1;
+  string event_id    = 2;   // UUIDv7
+
+  string source_topic = 10;  // the topic the entry was derived from, e.g. "alert.raised.v1"
+  string source_id    = 11;  // the id of the originating record (alert id, track id, …)
+  string summary      = 12;  // rendered line, e.g. "threat MED → CRITICAL 0.853"
+
+  string actor_id           = 20;  // empty for a system-generated entry
+  string actor_display_name = 21;
+
+  google.protobuf.Timestamp occurred_at = 30;
+
+  string schema_version = 40;
+  string correlation_id = 41;
+}
+
+// A reference to one piece of evidence in an incident's bundle (section 2.4.3, "Export Evidence
+// Bundle").
+//
+// A reference, never a payload. The same rule detection.proto applies to IQ captures and video
+// frames applies here: an event carrying a spectrogram would put megabytes on a Kafka topic that
+// the gateway, reporting and audit all consume. `uri` addresses the EvidenceStore; `sha256` is
+// what makes an exported bundle verifiable after it leaves the platform.
+message EvidenceRef {
+  string       evidence_id = 1;
+  string       incident_id = 2;
+  EvidenceKind kind        = 3;
+
+  string uri          = 10;  // EvidenceStore URI — never an inline payload
+  string sha256       = 11;  // content hash of the referenced object
+  uint64 size_bytes   = 12;
+  string content_type = 13;
+
+  string                    source_id   = 20;  // sensor, model, or service that produced it
+  google.protobuf.Timestamp captured_at = 21;
+
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+
+enum EvidenceKind {
+  EVIDENCE_KIND_UNSPECIFIED    = 0;
+  EVIDENCE_KIND_DETECTION      = 1;
+  EVIDENCE_KIND_TRACK_SNAPSHOT = 2;
+  EVIDENCE_KIND_INFERENCE      = 3;
+  EVIDENCE_KIND_ASSESSMENT     = 4;
+  EVIDENCE_KIND_FRAME          = 5;   // EO/IR still
+  EVIDENCE_KIND_SPECTROGRAM    = 6;
+  EVIDENCE_KIND_AUDIT_EXTRACT  = 7;   // signed segment of the hash chain (section 7.5)
+  EVIDENCE_KIND_OPERATOR_NOTE  = 8;
+}
+
+// Section 2.4.3's decision chain: what the system advised, what the operator decided, who
+// authorised it, and — stated rather than implied — that no engagement action was taken.
+message DecisionChain {
+  pk.nust.cuas.threat.v1.Recommendation system_recommended = 1;
+
+  // What the operator actually did, which may differ from the advice. The divergence is the point
+  // of the record: a system whose advice is always followed is one nobody is supervising.
+  string operator_decision = 2;
+
+  string                    authorised_by      = 10;
+  string                    authorised_by_name = 11;
+  google.protobuf.Timestamp authorised_at      = 12;
+
+  // Reference into the tamper-evident audit chain (section 7.5), rendered as "audit:0x8f3a… ✓
+  // chain valid" in section 2.4.3.
+  string audit_ref = 20;
+
+  EngagementAction engagement_action = 30;
+}
+
+// **This vocabulary has exactly one value, and that is the design.**
+//
+// The platform produces advisory recommendations only. RF jamming, GNSS spoofing and cyber
+// takeover are outside the software boundary, and every recommendation terminates at an operator
+// authorisation gate. Section 2.4.3 renders this field as the literal "ENGAGEMENT ACTION — NONE,
+// outside system scope", and it is a typed field rather than a free string so that an exported
+// evidence bundle asserts it structurally: there is no value a producer could set that would
+// claim otherwise, and no consumer that would need to parse text to be sure.
+//
+// Adding a second value requires an architecture amendment and supervisor approval, not a pull
+// request.
+enum EngagementAction {
+  ENGAGEMENT_ACTION_UNSPECIFIED = 0;
+  ENGAGEMENT_ACTION_NONE        = 1;
+}

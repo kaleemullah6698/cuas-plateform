@@ -1,0 +1,203 @@
+syntax = "proto3";
+
+// Threat assessment schema — ARCHITECTURE.md sections 4.1.7, 5.3.3 and 6.3.4.
+//
+// The shape of an assessment as it is published on threat.assessed.v1,
+// threat.level.changed.v1 and threat.recommendation.generated.v1. Section 4.1.7 names the
+// threat events but does not define their fields, and section 6.3.4 fixes the scoring factors,
+// the level vocabulary and the recommendation vocabulary; both are defined here and
+// ARCHITECTURE.md section 5.3.3 is amended to match (the convention track.proto follows for
+// section 5.3.2).
+//
+// Field numbers are grouped by concern with gaps between the groups, so a later addition lands
+// beside what it belongs with instead of at the end. Every message here is new, so nothing in
+// this file can break an existing consumer.
+package pk.nust.cuas.threat.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.threat.v1";
+option java_outer_classname = "ThreatProto";
+
+// Composite threat level (section 6.3.4). A closed, ordered vocabulary — the ordinal ordering is
+// meaningful and is what "escalated" in ThreatLevelChanged is measured against.
+//
+// UNSPECIFIED is not a sixth level below LOW: it means no assessment has been made yet, which is
+// what section 2.4.2's console renders as "○ UNK". A track with no model confidence and no
+// proximity factor is unassessed, not benign, and collapsing the two would let an unjudged track
+// read as the safest thing on the screen.
+enum ThreatLevel {
+  THREAT_LEVEL_UNSPECIFIED = 0;
+  THREAT_LEVEL_LOW         = 1;
+  THREAT_LEVEL_MEDIUM      = 2;
+  THREAT_LEVEL_HIGH        = 3;
+  THREAT_LEVEL_CRITICAL    = 4;
+}
+
+// The scoring factors of section 6.3.4, rendered as the breakdown in section 2.4.2.
+//
+// A closed enum rather than a free string: the breakdown is an explainability surface an operator
+// reads and a reviewer audits, and a typed factor name cannot drift between the producer and the
+// dashboard that labels it. A new factor is a new enum value plus a policy weight — additive under
+// section 5.5, and it arrives with the policy version that introduced it.
+enum ThreatFactorType {
+  THREAT_FACTOR_TYPE_UNSPECIFIED     = 0;
+  THREAT_FACTOR_TYPE_MODEL_CONFIDENCE = 1;  // fused classification confidence
+  THREAT_FACTOR_TYPE_PROXIMITY        = 2;  // CPA distance to the nearest protected asset
+  THREAT_FACTOR_TYPE_CLOSING_VELOCITY = 3;  // rate of closure along the CPA geometry
+  THREAT_FACTOR_TYPE_TRAJECTORY_INTENT = 4; // whether the predicted path holds toward the asset
+  THREAT_FACTOR_TYPE_SENSOR_AGREEMENT  = 5; // cross-modality corroboration
+}
+
+// The advisory recommendation vocabulary of section 6.3.4. **Closed by specification.**
+//
+// This platform produces advisory recommendations only. Every recommendation terminates at an
+// operator authorisation gate, and no value here encodes an engagement action: RF jamming, GNSS
+// spoofing and cyber takeover are outside the software boundary. Extending this enum requires an
+// architecture amendment and supervisor approval, not a pull request — see EngagementAction in
+// alert.proto, which states the same constraint on the decision-chain record.
+//
+// The names are reproduced verbatim from section 6.3.4 rather than given a THREAT_ prefix, because
+// the specification fixes the strings and an operator-facing vocabulary that differs from the
+// document it is defended by is a vocabulary nobody can check.
+enum Recommendation {
+  RECOMMENDATION_UNSPECIFIED  = 0;
+  MONITOR                     = 1;
+  TRACK_AND_MONITOR           = 2;
+  REQUEST_VISUAL_ID           = 3;
+  ESCALATE_TO_SUPERVISOR      = 4;
+  RECOMMEND_OPERATOR_REVIEW   = 5;
+}
+
+// One weighted input to the composite score — one row of section 2.4.2's breakdown panel.
+//
+// `available` exists because section 6.3.4 requires a missing factor to be reported rather than
+// defaulted. A track outside every asset's prediction horizon has no proximity factor at all; a
+// zero would read as "very far", which is a claim the system has no evidence for, and a 1.0 would
+// read as "on top of the asset". Both are worse than saying nothing, so an unavailable factor
+// contributes nothing to the score and shrinks AssessmentConfidence.available_weight instead.
+message ThreatFactor {
+  ThreatFactorType type      = 1;
+  bool             available = 2;
+
+  // Normalised [0,1] factor value and the policy weight applied to it. Meaningful only when
+  // `available` is true; both are zero otherwise.
+  float value        = 3;
+  float weight       = 4;
+  float contribution = 5;   // value × weight — the "0.87 × 0.40 = 0.348" column of section 2.4.2
+
+  // Why the factor could not be computed, when `available` is false. Operator-facing text, e.g.
+  // "no protected asset within the prediction horizon".
+  string unavailable_reason = 6;
+}
+
+// How much of the scoring model actually had evidence behind it.
+//
+// Reported alongside the score rather than folded into it. A 0.62 composite computed from every
+// factor and a 0.62 computed from two of five are different claims, and an operator who cannot
+// tell them apart cannot calibrate their trust in the number.
+message AssessmentConfidence {
+  // Sum of the weights of the factors that were available, in [0,1]. 1.0 means the full model
+  // was evaluated.
+  float  available_weight  = 1;
+  uint32 factors_available = 2;
+  uint32 factors_total     = 3;
+
+  // False when available_weight falls below the active policy's floor. A score can still be
+  // published while unreliable — suppressing it would leave the operator with nothing — but the
+  // console renders it as provisional (section 2.5.6).
+  bool is_reliable = 4;
+}
+
+// A completed assessment, carried on threat.assessed.v1.
+//
+// Immutable and identified in its own right: an assessment is the evidence for a threat level at
+// a moment, and alerts, incidents and audit records all cite assessment_id. Re-scoring a track
+// produces a new assessment rather than mutating this one.
+message ThreatAssessment {
+  string assessment_id = 1;   // UUIDv7 — time-sortable
+  string track_id      = 2;
+  string sector_id     = 3;
+
+  float                 composite_score = 10;  // [0,1] — the weighted sum of the factors below
+  ThreatLevel           level           = 11;
+  repeated ThreatFactor factors         = 12;
+  AssessmentConfidence  confidence      = 13;
+
+  // The advisory recommendation this assessment produced. Also published on its own topic with
+  // its rationale; carried here so a consumer holding an assessment never has to join two events
+  // to know what was advised.
+  Recommendation recommendation = 14;
+
+  // The policy that produced the score — the thresholds and weights in force, not the code
+  // version. Section 2.4.2 renders it as "Policy: CRIT ≥ 0.80 (policy-v3, 12 Jul)". A score
+  // without the policy that produced it cannot be reproduced, and reproducibility is what makes
+  // a defence-adjacent score defensible to a reviewer.
+  string                    policy_id           = 20;
+  string                    policy_version      = 21;
+  google.protobuf.Timestamp policy_effective_at = 22;
+
+  google.protobuf.Timestamp assessed_at = 30;  // platform clock
+  google.protobuf.Timestamp observed_at = 31;  // the track estimate time this assessment scored
+
+  string schema_version = 40;  // e.g. "1.0.0"
+  string correlation_id = 41;  // end-to-end trace, carried from the triggering track update
+}
+
+// A threat level transition, carried on threat.level.changed.v1.
+//
+// Published only when the level actually changes, not on every assessment — this is the topic
+// alert-service keys its lifecycle off (section 4.1.8), and a level that re-published unchanged
+// at the assessment rate would raise a duplicate alert per track update.
+message ThreatLevelChanged {
+  string track_id      = 1;
+  string sector_id     = 2;
+  string assessment_id = 3;   // the assessment that produced current_level
+
+  ThreatLevel previous_level = 10;
+  ThreatLevel current_level  = 11;
+  float       previous_score = 12;
+  float       current_score  = 13;
+
+  // True when current_level is above previous_level. Reported explicitly rather than left to the
+  // consumer to derive from the enum ordinals, so a de-escalation cannot be mistaken for an
+  // escalation by a consumer that compares the wrong way round.
+  bool escalation = 14;
+
+  Recommendation recommendation = 15;  // the advice in force at the new level
+
+  google.protobuf.Timestamp changed_at = 20;
+
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+
+// An advisory recommendation, carried on threat.recommendation.generated.v1.
+//
+// Separate from the assessment because the recommendation is what reaches the operator and what
+// the decision chain (section 2.4.3) records the operator as having accepted or overridden. It
+// carries its own rationale text; a recommendation an operator cannot see the reasoning for is
+// one they can only obey or ignore.
+message ThreatRecommendationGenerated {
+  string recommendation_id = 1;   // UUIDv7
+  string track_id          = 2;
+  string assessment_id     = 3;
+
+  Recommendation recommendation = 10;
+  ThreatLevel    level          = 11;
+
+  // Operator-facing explanation, e.g. "closing at 14 m/s, CPA 640 m in 00:47, 3 of 3 modalities
+  // agree". Derived from the factors, never free-form model output.
+  string rationale = 12;
+
+  // The rule that fired, for audit. A recommendation is produced by the deterministic rules
+  // engine (section 6.3.4, "rules dominate by design"), so it always has one.
+  string rule_id         = 13;
+  string policy_version  = 14;
+
+  google.protobuf.Timestamp generated_at = 20;
+
+  string schema_version = 30;
+  string correlation_id = 31;
+}

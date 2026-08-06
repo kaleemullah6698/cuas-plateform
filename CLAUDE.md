@@ -164,17 +164,29 @@ which defects it found.
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
 > exit 0).
 
-Built: `contracts` (§5.3, §5.3.1, §5.3.2, §6.2, audit, user, gateway, ingestion, track + `TrackService`),
-`platform-commons`, `audit-service`, `user-service`, `auth-service`, `api-gateway`,
-`sensor-ingestion`, `sensor-simulator`, `track-correlation`, `ai-orchestrator`. The remaining five
-services are still scaffold.
+Built: `contracts` (§5.3, §5.3.1–§5.3.5, §6.2, audit, user, gateway, ingestion, track +
+`TrackService`, threat, alert, notification), `platform-commons`, `audit-service`, `user-service`,
+`auth-service`, `api-gateway`, `sensor-ingestion`, `sensor-simulator`, `track-correlation`,
+`ai-orchestrator`. The remaining five services are still scaffold.
 
 **M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
 trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,
 canary, the four `ai.*` topics, the admin API, and track-correlation's circuit-broken `Infer` call
 producing `track.classified.v1`. Frontend is deferred to M9; `npm ci` has never been run.
 
-**Next: M7 — assessment & alerting** (`threat-assessment`, `alert-service`, `notification-service`).
+**M7 in progress — assessment & alerting** (`threat-assessment`, `alert-service`,
+`notification-service`), delivered in four groups: **A** contracts & amendments ✅, **B**
+threat-assessment, **C** alert-service, **D** notification-service + end-to-end replay.
+
+**M7.A complete.** `threat.proto`, `alert.proto`, `notification.proto` authored (§5.3.3–§5.3.5);
+seven topics catalogued (25 → 32 primary, 6 → 11 DLQ); §6.3.4 amended with normative weights and
+the LOW/MEDIUM/HIGH thresholds §2.4.2 never stated; §4.1.7 amended to place the rules engine in
+`threat-assessment` (the AI residual is one factor on an event, never a synchronous call); §4.1.8
+and §4.1.9 amended to consume the `sensor.health.v1` that actually exists.
+
+**The advisory-only limit is enforced by test.** `Recommendation` must hold exactly §6.3.4's five
+values and `EngagementAction` exactly one — `ENGAGEMENT_ACTION_NONE`. Both fail the build if a value
+is added, which is what makes §0's scope limit a property of the build and not only of the document.
 
 **The orchestrator must never name a model.** §6.1's guarantee — a new model is a configuration
 entry, not a code change — is enforced by `ModelAgnosticismTest`, which fails the build if a §6.3

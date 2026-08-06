@@ -210,7 +210,8 @@ buf generate
 
 **Infrastructure acceptance test (one command).** Once Docker Desktop is running, this brings up
 the infra profile, waits for health, applies the database and topic catalogues, and asserts all
-ten databases, all twenty-four topics, and Schema Registry / Redis / MinIO / Elasticsearch:
+ten databases, every topic in the §5.2 catalogue, and Schema Registry / Redis / MinIO /
+Elasticsearch:
 
 ```bash
 bash scripts/verify-infra.sh

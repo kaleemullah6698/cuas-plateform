@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+// Notification delivery schema — ARCHITECTURE.md sections 4.1.9 and 5.3.5.
+//
+// The shape of a delivery outcome as it is published on notification.sent.v1 and
+// notification.failed.v1. Section 4.1.9 names these events but does not define their fields; they
+// are defined here and ARCHITECTURE.md section 5.3.5 is amended to match.
+//
+// Both events describe an *attempt's* outcome, not a notification's content. The content is
+// derived from the alert or incident that triggered it and is already on its own topic; repeating
+// it here would put the same operator-facing text on two topics with two retention policies, and
+// would put a recipient's message body into a stream the audit service mirrors.
+package pk.nust.cuas.notification.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "pk.nust.cuas.notification.v1";
+option java_outer_classname = "NotificationProto";
+
+// Delivery channels (section 4.1.9). WEBSOCKET is in-console push via the gateway fan-out
+// (section 3.5); the others leave the platform.
+enum NotificationChannel {
+  NOTIFICATION_CHANNEL_UNSPECIFIED = 0;
+  NOTIFICATION_CHANNEL_WEBSOCKET   = 1;
+  NOTIFICATION_CHANNEL_EMAIL       = 2;
+  NOTIFICATION_CHANNEL_SMS         = 3;
+  NOTIFICATION_CHANNEL_WEBHOOK     = 4;
+}
+
+// What the notification was about. Kept as a small closed enum rather than the source topic name,
+// so per-user channel preferences (section 4.1.9) are expressed against a stable vocabulary
+// instead of against topic names, which are versioned and would break a stored preference on a
+// topic bump.
+enum NotificationTrigger {
+  NOTIFICATION_TRIGGER_UNSPECIFIED     = 0;
+  NOTIFICATION_TRIGGER_ALERT_RAISED    = 1;
+  NOTIFICATION_TRIGGER_ALERT_ESCALATED = 2;
+  NOTIFICATION_TRIGGER_INCIDENT_CREATED = 3;
+  NOTIFICATION_TRIGGER_SENSOR_OFFLINE  = 4;
+  NOTIFICATION_TRIGGER_TEST            = 5;   // POST /notifications/test
+}
+
+// Why a delivery attempt failed. The distinction that matters is retryable versus not: a provider
+// timeout is worth another attempt, an unknown recipient never will be, and retrying it would
+// consume the per-channel rate budget that a genuinely retryable alert needs.
+enum DeliveryFailureReason {
+  DELIVERY_FAILURE_REASON_UNSPECIFIED       = 0;
+  DELIVERY_FAILURE_REASON_PROVIDER_ERROR    = 1;  // retryable
+  DELIVERY_FAILURE_REASON_PROVIDER_TIMEOUT  = 2;  // retryable
+  DELIVERY_FAILURE_REASON_RATE_LIMITED      = 3;  // retryable
+  DELIVERY_FAILURE_REASON_RECIPIENT_UNKNOWN = 4;  // terminal
+  DELIVERY_FAILURE_REASON_CHANNEL_DISABLED  = 5;  // terminal
+  DELIVERY_FAILURE_REASON_REJECTED          = 6;  // terminal — provider refused the message
+}
+
+// A successful delivery, carried on notification.sent.v1.
+message NotificationSent {
+  string              notification_id = 1;   // UUIDv7
+  NotificationChannel channel         = 2;
+  NotificationTrigger trigger         = 3;
+
+  // Cross-channel deduplication identity (section 4.1.9): the same recipient is not paged twice
+  // for one alert because two channels were configured. Carried on the event so reporting can
+  // count notified *events* rather than notified *messages*.
+  string dedup_key = 4;
+
+  string recipient_user_id = 10;
+  // The channel address is deliberately absent. An email address or phone number on a topic the
+  // audit service and reporting both mirror would spread personal data across retention policies
+  // that were never chosen for it; the address lives in notifydb, keyed by recipient and channel.
+
+  string alert_id    = 20;
+  string incident_id = 21;
+  string track_id    = 22;
+
+  // The provider's own identifier for the message, when it returns one — the handle an operator
+  // needs to chase a delivery with the upstream provider.
+  string provider_message_id = 30;
+  uint32 attempt             = 31;  // 1 for a first-try success
+  uint32 latency_ms          = 32;
+
+  google.protobuf.Timestamp sent_at = 40;
+
+  string schema_version = 50;
+  string correlation_id = 51;  // carried from the alert or incident that triggered delivery
+}
+
+// A failed delivery attempt, carried on notification.failed.v1.
+//
+// Emitted per attempt, not only on final failure. A channel degrading through retries is
+// operationally interesting before it gives up, and a topic that only reported terminal failures
+// would show a provider as healthy right up to the moment it was not.
+message NotificationFailed {
+  string              notification_id = 1;
+  NotificationChannel channel         = 2;
+  NotificationTrigger trigger         = 3;
+  string              dedup_key       = 4;
+
+  string recipient_user_id = 10;
+
+  string alert_id    = 20;
+  string incident_id = 21;
+  string track_id    = 22;
+
+  DeliveryFailureReason reason = 30;
+  // Provider-reported detail, for an operator diagnosing a channel. Never the message body.
+  string                detail = 31;
+
+  uint32                    attempt         = 40;
+  bool                      will_retry      = 41;
+  google.protobuf.Timestamp next_attempt_at = 42;  // unset when will_retry is false
+
+  google.protobuf.Timestamp failed_at = 50;
+
+  string schema_version = 60;
+  string correlation_id = 61;
+}

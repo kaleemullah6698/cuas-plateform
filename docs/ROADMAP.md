@@ -701,10 +701,10 @@ names roughly **40 distinct topics**. The uncatalogued remainder, by owner:
 | `auth-service` | `platform.auth.login.success/.failed/.logout/.token.revoked/.lockout.v1` |
 | `user-service` | `platform.user.created/.updated.v1`, `platform.role.assigned/.permissions.changed.v1` |
 | `audit-service` | `audit.chain.verified/.broken.v1` |
-| `sensor-ingestion` | `sensor.health.degraded/.offline.v1` |
-| `threat-assessment` (M7) | `threat.recommendation.generated.v1` |
-| `alert-service` (M7) | `alert.escalated/.resolved.v1`, `incident.updated/.closed.v1` |
-| `notification-service` (M7) | `notification.sent/.failed.v1` |
+| `sensor-ingestion` | ~~`sensor.health.degraded/.offline.v1`~~ — **resolved at M7.A**: phantom topics, never produced. §4.1.8/§4.1.9 amended to consume `sensor.health.v1` and filter on status |
+| `threat-assessment` (M7) | ~~`threat.recommendation.generated.v1`~~ — **catalogued at M7.A** |
+| `alert-service` (M7) | ~~`alert.escalated/.resolved.v1`, `incident.updated/.closed.v1`~~ — **catalogued at M7.A** |
+| `notification-service` (M7) | ~~`notification.sent/.failed.v1`~~ — **catalogued at M7.A** |
 | `reporting-service` (M8) | `report.generation.started/.generated/.generation.failed.v1` |
 | `config-service` (M8) | `platform.config.policy/.ai.updated.v1` |
 
@@ -882,8 +882,66 @@ trained model remains a configuration change: `mode: grpc` plus an `endpoint`.
 - **mTLS material** (§7.2) is a deployment concern; both gRPC surfaces bind plaintext in development
   and the platform's certificate configuration terminates them in production.
 
-**M7 — Assessment & alerting**
+**M7 — Assessment & alerting** — 🚧 **In progress**
 Objective: tracks + inference → scored threats → alerts → incidents → notifications. Services: `threat-assessment`, `alert-service`, `notification-service`. Deliverables: composite scoring (rules-dominant, explainable, §6.3.4), Low/Med/High/Critical, advisory recommendations from the **closed** vocabulary; alert lifecycle, escalation timers, incidents, evidence bundles; multi-channel delivery. Dependencies: M5, M6. Expected output: a replayed intrusion drives an end-to-end alert with a full decision chain. Testing: scoring rule unit tests; alert dedup + escalation integration tests; an idempotency test on threat→alert.
+
+M7 is delivered in four groups: **A** contracts and architecture amendments (no service code), then one group per service — **B** `threat-assessment`, **C** `alert-service`, **D** `notification-service` plus the end-to-end replay.
+
+**M7.A — Contracts & architecture amendments** — ✅ **Complete** — 40 contracts tests (+25)
+
+No service code. Three proto files authored, seven topics catalogued, five architecture sections
+amended. `buf lint` clean, `buf breaking` clean against `main` (three new files — nothing additive
+to break), `mvn -pl contracts -am verify` green.
+
+**Authored:** `threat.proto` (§5.3.3), `alert.proto` (§5.3.4), `notification.proto` (§5.3.5).
+
+**Four specification gaps closed — each was a genuine blocker, not a preference:**
+
+1. **The Low/Medium/High thresholds did not exist.** §2.4.2 fixes only `CRITICAL ≥ 0.80`; the other
+   three boundaries were absent, so a four-level classification was unimplementable. §6.3.4 amended
+   with `LOW < 0.30`, `MEDIUM 0.30–0.55`, `HIGH 0.55–0.80`, chosen to reproduce §2.4.2's own rendered
+   rows (0.853→CRIT, 0.74/0.71→HIGH, 0.58/0.52→MED, 0.31→LOW) rather than invented. The §2.4.2
+   weights (0.40/0.25/0.20/0.10/0.05) are promoted from a wireframe example to normative defaults.
+   All of it is policy data, not constants — retuning is a `policy_versions` row with an audit trail.
+
+2. **`sensor.health.degraded.v1` and `sensor.health.offline.v1` do not exist.** §4.1.8 and §4.1.9
+   named them as consumed, but §5.2 never catalogued them and §5.3.1 produces a single
+   `sensor.health.v1` carrying a `SensorHealth.status`. Both rows amended to consume the real topic
+   and filter. **No M4 code was touched** — the defect was in the document, and splitting liveness
+   across a topic per status would have given a sensor's transitions no ordering between them.
+
+3. **Seven M7-published topics were missing from §5.2.** The fourth occurrence of the pattern this
+   roadmap has been tracking since M4.0 (after `track.merged.v1`, `track.classified.v1` and
+   `ai.service.degraded.v1`): a topic in a service's *Publishes* line with no catalogue row. All
+   seven added with key, partitions, retention and consumers, plus `create-topics.sh` entries and
+   five new DLQs for the hops M7 will consume. Catalogue: **25 → 32 primary, 6 → 11 DLQ.**
+
+4. **Scoring had two plausible homes.** §4.1.7 gives the rules engine to `threat-assessment`; §6.3.4
+   describes `threat-scorer` as a rules engine plus residual, which reads as an AI service owning the
+   whole thing. §4.1.7 amended to settle it: **the weighted rules engine is Track A code in
+   `threat-assessment`**, and the gradient-boosted residual arrives as one factor on
+   `ai.inference.completed.v1` — never a synchronous call. This keeps
+   `track-correlation → ai-orchestrator` the pipeline's only synchronous link (CLAUDE.md §2), and
+   makes the service fully testable with zero models, the same property §6.4 gives the rest of Track A.
+
+**The advisory-only scope limit is now enforced by the build, not only by prose.** Two closed
+vocabularies are asserted by test: `Recommendation` must hold exactly §6.3.4's five values, and
+`EngagementAction` must hold exactly one legal value — `ENGAGEMENT_ACTION_NONE`. The latter is a
+one-value enum by design: §2.4.3 renders "ENGAGEMENT ACTION — NONE, outside system scope", and
+making it a typed field means no producer can set a value that claims otherwise and no consumer must
+parse prose to be sure. A free-text field would have carried the same words with none of the
+guarantee. Adding a value to either fails the build.
+
+**Also deliberate:** severity reuses `threat.v1.ThreatLevel` rather than a parallel alert scale (one
+fact, one source); `dedup_key` is published *and* unique-constrained in `alertdb`, because §5.7 names
+duplicate alerts as the trust failure that outranks all others and application logic alone cannot
+survive two instances processing one transition; evidence is referenced by URI + SHA-256, never
+inlined, so a spectrogram never lands on a topic the gateway, reporting and audit all consume; and
+neither notification event carries a channel address or message body, keeping personal data off
+topics whose retention was chosen for telemetry (§7.9).
+
+`verify-infra.sh`'s topic assertion was stale (`>= 26` against an actual 31) and is corrected to
+`>= 43` with the twelve new topics named explicitly.
 
 **M8 — Config, reporting, observability, hardening**
 Objective: runtime configurability, searchable history, full telemetry, security pass. Services: `config-service`, `reporting-service`, monitoring stack. Deliverables: WatchConfig push; ES indexing + templated async reports + ILM retention (§7.9); Prometheus/Grafana/Loki/Tempo with the four §8.6 dashboards; a security-hardening review against §7. Dependencies: M2–M7. Expected output: a config change propagates without redeploy; reports generate; traces span end-to-end. Testing: config-propagation integration test; report-generation test; a trace-continuity assertion.

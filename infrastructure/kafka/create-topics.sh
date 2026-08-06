@@ -45,9 +45,16 @@ PRIMARY_TOPICS=(
   "ai.service.degraded.v1            3 ${R_30D} delete"
   "threat.assessed.v1                6 ${R_30D} delete"
   "threat.level.changed.v1           6 ${R_90D} delete"
+  "threat.recommendation.generated.v1 6 ${R_90D} delete"
   "alert.raised.v1                   3 ${R_90D} delete"
   "alert.acknowledged.v1             3 ${R_90D} delete"
+  "alert.escalated.v1                3 ${R_90D} delete"
+  "alert.resolved.v1                 3 ${R_90D} delete"
   "incident.created.v1               3 ${R_INF} delete"
+  "incident.updated.v1               3 ${R_INF} delete"
+  "incident.closed.v1                3 ${R_INF} delete"
+  "notification.sent.v1              3 ${R_30D} delete"
+  "notification.failed.v1            3 ${R_30D} delete"
   "platform.config.updated.v1        1 ${R_INF} compact"
   "platform.config.sensor.updated.v1 1 ${R_INF} compact"
   "platform.audit.v1                 3 ${R_INF} delete"
@@ -61,11 +68,16 @@ PRIMARY_TOPICS=(
 # quarantined without blocking the stream (section 5.6).
 DLQ_SOURCES=(
   "sensor.detection.normalized.v1"
+  "sensor.health.v1"
   "track.created.v1"
   "track.updated.v1"
+  "track.lost.v1"
+  "track.merged.v1"
   "ai.inference.completed.v1"
   "threat.level.changed.v1"
   "alert.raised.v1"
+  "alert.escalated.v1"
+  "incident.created.v1"
 )
 
 create_topic() {

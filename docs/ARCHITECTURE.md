@@ -1033,6 +1033,14 @@ The raw topic appears on both lines by design. The intake adapters (REST `POST /
 | **Publishes** | `threat.assessed.v1`, `threat.level.changed.v1`, `threat.recommendation.generated.v1` |
 | **Consumes** | `track.updated.v1`, `ai.inference.completed.v1`, `platform.config.policy.updated.v1` |
 | **Scaling** | Stateless, CPU-bound; horizontal |
+| **Schema** | `contracts/proto/threat.proto` (§5.3.3) |
+
+**The rules engine is authoritative, and it lives here.** §6.3.4 describes `threat-scorer` as "a weighted rules engine + gradient-boosted residual correction" with "rules dominate by design", which reads as though the whole scorer is an AI service. It is not, and the split matters:
+
+- The **weighted rules engine is Track A code inside this service.** It is deterministic, its per-factor breakdown is the explainability surface §2.4.2 renders, and it must produce a score whether or not any AI service is reachable. A threat score that disappeared when the AI boundary degraded would invert §5.6's governing principle — a drone scored late is a degraded outcome, a drone never scored is an undetected one.
+- The **`threat-scorer` residual correction is the Track B half**, and it reaches this service the same way every other model does: as an `ai.inference.completed.v1` event, weighed as *one factor among five*. It is never a synchronous call. `track-correlation → ai-orchestrator` remains the only synchronous link in the pipeline, and adding a second would put an AI service on this service's critical path.
+
+The consequence is that this service is fully functional and fully testable with **zero models present**, which is the same property §6.4 gives the rest of Track A.
 
 ### 4.1.8 Alert Service
 
@@ -1042,8 +1050,13 @@ The raw topic appears on both lines by design. The intake adapters (REST `POST /
 | **Database** | `alertdb`: `alerts`, `alert_acknowledgements`, `alert_escalations`, `incidents`, `incident_events`, `incident_notes`, `incident_evidence` |
 | **APIs** | `GET /alerts`, `POST /alerts/{id}/acknowledge`, `/assign`, `/resolve`; `GET/POST /incidents`, `GET /incidents/{id}/timeline`, `POST /incidents/{id}/notes`, `GET /incidents/{id}/evidence` |
 | **Publishes** | `alert.raised.v1`, `alert.acknowledged.v1`, `alert.escalated.v1`, `alert.resolved.v1`, `incident.created.v1`, `incident.updated.v1`, `incident.closed.v1` |
-| **Consumes** | `threat.level.changed.v1`, `track.lost.v1`, `sensor.health.degraded.v1` |
+| **Consumes** | `threat.level.changed.v1`, `track.lost.v1`, `track.merged.v1`, `sensor.health.v1` |
 | **Scaling** | Horizontal; escalation timers via a Redis sorted-set scheduler with leader election |
+| **Schema** | `contracts/proto/alert.proto` (§5.3.4) |
+
+**Amended (M7.A): `sensor.health.degraded.v1` → `sensor.health.v1`.** Earlier drafts of this row named a per-status topic that the catalogue in §5.2 never contained and that §5.3.1 does not produce. Ingestion publishes **one** health topic carrying a `SensorHealth` with a `status` field; this service consumes it and filters for `DEGRADED`. Splitting liveness across a topic per status would mean a sensor's state transitions arrived on different partitions of different topics with no ordering between them, so a `DEGRADED` could be processed after the `ONLINE` that superseded it. One topic keyed by `sensorId` gives a sensor's health a single ordered history, which is the property alerting actually needs.
+
+**`track.merged.v1` added to the consumed set.** A merge retires the younger track (§4.1.5). An alert still open against it describes an object that no longer has an identity, so it is re-pointed at the survivor rather than left orphaned — the same reason `track.lost.v1` is consumed.
 
 ### 4.1.9 Notification Service
 
@@ -1053,8 +1066,11 @@ The raw topic appears on both lines by design. The intake adapters (REST `POST /
 | **Database** | `notifydb`: `notification_channels`, `user_preferences`, `notification_log`, `delivery_receipts` |
 | **APIs** | `GET/PUT /notifications/preferences`, `GET /notifications/history`, `POST /notifications/test` |
 | **Publishes** | `notification.sent.v1`, `notification.failed.v1` |
-| **Consumes** | `alert.raised.v1`, `alert.escalated.v1`, `incident.created.v1`, `sensor.health.offline.v1` |
+| **Consumes** | `alert.raised.v1`, `alert.escalated.v1`, `incident.created.v1`, `sensor.health.v1` |
 | **Scaling** | Horizontal; per-channel outbound rate limiting |
+| **Schema** | `contracts/proto/notification.proto` (§5.3.5) |
+
+**Amended (M7.A): `sensor.health.offline.v1` → `sensor.health.v1`,** for the reason given in §4.1.8 — one health topic, filtered here for `OFFLINE`.
 
 ### 4.1.10 Reporting Service
 
@@ -1221,9 +1237,16 @@ flowchart LR
 | `ai.service.degraded.v1` | `serviceId` | 3 | 30 d | delete | Orchestrator | Alert, Gateway, Reporting, Audit |
 | `threat.assessed.v1` | `trackId` | 6 | 30 d | delete | Threat | Alert, Reporting, Audit |
 | `threat.level.changed.v1` | `trackId` | 6 | 90 d | delete | Threat | Alert, Notification, Gateway, Audit |
+| `threat.recommendation.generated.v1` | `trackId` | 6 | 90 d | delete | Threat | Alert, Gateway, Audit, Reporting |
 | `alert.raised.v1` | `alertId` | 3 | 90 d | delete | Alert | Notification, Gateway, Audit, Reporting |
 | `alert.acknowledged.v1` | `alertId` | 3 | 90 d | delete | Alert | Audit, Reporting |
+| `alert.escalated.v1` | `alertId` | 3 | 90 d | delete | Alert | Notification, Gateway, Audit, Reporting |
+| `alert.resolved.v1` | `alertId` | 3 | 90 d | delete | Alert | Gateway, Audit, Reporting |
 | `incident.created.v1` | `incidentId` | 3 | ∞ | delete | Alert | Notification, Reporting, Audit |
+| `incident.updated.v1` | `incidentId` | 3 | ∞ | delete | Alert | Gateway, Reporting, Audit |
+| `incident.closed.v1` | `incidentId` | 3 | ∞ | delete | Alert | Notification, Reporting, Audit |
+| `notification.sent.v1` | `recipientUserId` | 3 | 30 d | delete | Notification | Audit, Reporting |
+| `notification.failed.v1` | `recipientUserId` | 3 | 30 d | delete | Notification | Alert, Reporting, Audit |
 | `platform.config.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | All services |
 | `platform.config.sensor.updated.v1` | `namespace` | 1 | ∞ | compact | Configuration | Sensor Ingestion |
 | `platform.audit.v1` | `actorId` | 3 | ∞ | delete | All | Audit |
@@ -1463,6 +1486,331 @@ message Track {
   `device` are carried deliberately: §6.4 requires a mocked result to stay distinguishable wherever
   it surfaces, and a classification reaching the operator's screen without them would have lost that.
 - **Every addition since M5.1 is additive**, and therefore a minor version under §5.5: new fields on `Track`, new messages, and new enum values. No topic version bumps and no consumer breaks. The one non-additive change is documentary — `observed_at` was described in M5.1 as the latest detection's ingest time, which is what `last_seen` now carries; no consumer existed at the time.
+
+### 5.3.3 Threat schema
+
+Section 4.1.7 names the threat events but does not define their fields, and §6.3.4 fixes the factor set, the level vocabulary and the recommendation vocabulary. The schema is defined in `contracts/proto/threat.proto` (package `pk.nust.cuas.threat.v1`) and documented here. `threat.assessed.v1` carries `ThreatAssessment`, `threat.level.changed.v1` carries `ThreatLevelChanged`, and `threat.recommendation.generated.v1` carries `ThreatRecommendationGenerated`.
+
+```protobuf
+syntax = "proto3";
+package pk.nust.cuas.threat.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Ordered and closed (§6.3.4). UNSPECIFIED means unassessed — not a sixth level below LOW.
+enum ThreatLevel {
+  THREAT_LEVEL_UNSPECIFIED = 0;
+  THREAT_LEVEL_LOW         = 1;
+  THREAT_LEVEL_MEDIUM      = 2;
+  THREAT_LEVEL_HIGH        = 3;
+  THREAT_LEVEL_CRITICAL    = 4;
+}
+
+// The five weighted factors of §6.3.4, rendered as §2.4.2's breakdown panel.
+enum ThreatFactorType {
+  THREAT_FACTOR_TYPE_UNSPECIFIED       = 0;
+  THREAT_FACTOR_TYPE_MODEL_CONFIDENCE  = 1;
+  THREAT_FACTOR_TYPE_PROXIMITY         = 2;
+  THREAT_FACTOR_TYPE_CLOSING_VELOCITY  = 3;
+  THREAT_FACTOR_TYPE_TRAJECTORY_INTENT = 4;
+  THREAT_FACTOR_TYPE_SENSOR_AGREEMENT  = 5;
+}
+
+// The closed advisory vocabulary of §6.3.4, reproduced verbatim. No value encodes an
+// engagement action; extending this enum requires an architecture amendment.
+enum Recommendation {
+  RECOMMENDATION_UNSPECIFIED = 0;
+  MONITOR                    = 1;
+  TRACK_AND_MONITOR          = 2;
+  REQUEST_VISUAL_ID          = 3;
+  ESCALATE_TO_SUPERVISOR     = 4;
+  RECOMMEND_OPERATOR_REVIEW  = 5;
+}
+
+// One row of §2.4.2's breakdown. `available` is false when the factor had no evidence.
+message ThreatFactor {
+  ThreatFactorType type      = 1;
+  bool             available = 2;
+  float            value        = 3;   // [0,1], meaningful only when available
+  float            weight       = 4;
+  float            contribution = 5;   // value × weight
+  string           unavailable_reason = 6;
+}
+
+// How much of the scoring model actually had evidence behind it.
+message AssessmentConfidence {
+  float  available_weight  = 1;   // sum of the available factors' weights, [0,1]
+  uint32 factors_available = 2;
+  uint32 factors_total     = 3;
+  bool   is_reliable       = 4;   // available_weight above the policy floor
+}
+
+message ThreatAssessment {
+  string assessment_id = 1;   // UUIDv7
+  string track_id      = 2;
+  string sector_id     = 3;
+
+  float                 composite_score = 10;   // [0,1]
+  ThreatLevel           level           = 11;
+  repeated ThreatFactor factors         = 12;
+  AssessmentConfidence  confidence      = 13;
+  Recommendation        recommendation  = 14;
+
+  string                    policy_id           = 20;
+  string                    policy_version      = 21;
+  google.protobuf.Timestamp policy_effective_at = 22;
+
+  google.protobuf.Timestamp assessed_at = 30;   // platform clock
+  google.protobuf.Timestamp observed_at = 31;   // the track estimate time that was scored
+
+  string schema_version = 40;
+  string correlation_id = 41;
+}
+
+message ThreatLevelChanged {
+  string track_id      = 1;
+  string sector_id     = 2;
+  string assessment_id = 3;
+
+  ThreatLevel previous_level = 10;
+  ThreatLevel current_level  = 11;
+  float       previous_score = 12;
+  float       current_score  = 13;
+  bool        escalation     = 14;   // current above previous
+  Recommendation recommendation = 15;
+
+  google.protobuf.Timestamp changed_at = 20;
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+
+message ThreatRecommendationGenerated {
+  string recommendation_id = 1;   // UUIDv7
+  string track_id          = 2;
+  string assessment_id     = 3;
+
+  Recommendation recommendation = 10;
+  ThreatLevel    level          = 11;
+  string         rationale      = 12;   // operator-facing, derived from the factors
+  string         rule_id        = 13;
+  string         policy_version = 14;
+
+  google.protobuf.Timestamp generated_at = 20;
+  string schema_version = 30;
+  string correlation_id = 31;
+}
+```
+
+**Design decisions worth defending in review:**
+- **An assessment is immutable and has its own id.** Re-scoring a track produces a new `ThreatAssessment`, never a mutation of the last one. Alerts, incidents and audit records cite `assessment_id`, and a citation that could change meaning after the fact is not evidence.
+- **`policy_version` travels with every score.** §2.4.2 renders "Policy: CRIT ≥ 0.80 (policy-v3, 12 Jul)" for a reason: a score cannot be reproduced without the thresholds that produced it, and reproducibility is what makes a defence-adjacent number defensible to a reviewer months later. §6.3.4's weights and thresholds are policy rows, so this is not a constant the code could be read for.
+- **A missing factor is reported, not defaulted.** `available = false` plus a shrunken `AssessmentConfidence.available_weight` is the honest encoding; substituting 0.0 or 1.0 would inject a claim the system has no evidence for, in the direction nobody chose. §6.3.4's confidence row requires exactly this.
+- **`escalation` is a boolean, not left to ordinal comparison.** The enum happens to be ordered, but a consumer comparing the wrong way round would read a de-escalation as an escalation and page an operator for a threat that just receded. The same reasoning as `ClosestPointOfApproach.closing` in §5.3.2.
+- **`threat.level.changed.v1` fires on transitions only.** Alert-service keys its lifecycle off this topic (§4.1.8); a level republished unchanged at the assessment rate would raise one alert per track update, which §5.7 names as the failure that destroys operator trust fastest.
+- **`ThreatFactorType` is an enum, not a string.** The breakdown is an explainability surface an operator reads and a reviewer audits; a typed factor name cannot drift between the producer and the dashboard that labels it, and a typo cannot silently produce a factor nothing renders.
+- **`Recommendation`'s values are unprefixed.** They are reproduced verbatim from §6.3.4 rather than given a `THREAT_` prefix — an operator-facing vocabulary that differs from the document it is defended by is one nobody can check. This is what `buf.yaml`'s existing `ENUM_VALUE_PREFIX` exception exists for.
+
+### 5.3.4 Alert & incident schema
+
+Section 4.1.8 names the alert and incident events but does not define their fields. The schema is defined in `contracts/proto/alert.proto` (package `pk.nust.cuas.alert.v1`) and documented here. `alert.raised.v1` carries `Alert`; `alert.acknowledged.v1`, `alert.escalated.v1` and `alert.resolved.v1` carry the corresponding transition messages; `incident.created.v1`, `incident.updated.v1` and `incident.closed.v1` carry `Incident`, with `IncidentEvent` for timeline entries.
+
+```protobuf
+syntax = "proto3";
+package pk.nust.cuas.alert.v1;
+
+import "google/protobuf/timestamp.proto";
+import "threat.proto";
+
+enum AlertStatus {
+  ALERT_STATUS_UNSPECIFIED  = 0;
+  ALERT_STATUS_RAISED       = 1;
+  ALERT_STATUS_ACKNOWLEDGED = 2;
+  ALERT_STATUS_ESCALATED    = 3;
+  ALERT_STATUS_RESOLVED     = 4;
+  ALERT_STATUS_SUPPRESSED   = 5;   // folded into an open alert by the dedup window
+}
+
+enum AlertDisposition {
+  ALERT_DISPOSITION_UNSPECIFIED    = 0;
+  ALERT_DISPOSITION_TRUE_POSITIVE  = 1;
+  ALERT_DISPOSITION_FALSE_POSITIVE = 2;
+  ALERT_DISPOSITION_BENIGN         = 3;
+  ALERT_DISPOSITION_DUPLICATE      = 4;
+  ALERT_DISPOSITION_INCONCLUSIVE   = 5;
+}
+
+message Alert {
+  string      alert_id  = 1;   // UUIDv7
+  string      reference = 2;   // "ALT-9912" (§2.4.3)
+  AlertStatus status    = 3;
+  string      dedup_key = 4;   // track + level + policy; unique-constrained in alertdb
+
+  pk.nust.cuas.threat.v1.ThreatLevel    severity       = 10;
+  pk.nust.cuas.threat.v1.Recommendation recommendation = 11;
+  float                                 threat_score   = 12;
+
+  string track_id = 20; string sector_id = 21; string assessment_id = 22;
+  string title    = 30; string summary   = 31;
+
+  google.protobuf.Timestamp raised_at       = 40;
+  google.protobuf.Timestamp acknowledged_at = 41;
+  google.protobuf.Timestamp resolved_at     = 42;
+  uint32                    escalation_level = 43;
+  google.protobuf.Timestamp escalates_at     = 44;   // next timer fire
+  uint32                    occurrence_count = 45;   // suppressed repeats folded in
+
+  string incident_id = 50;
+  string schema_version = 60; string correlation_id = 61;
+}
+
+message AlertAcknowledged { … alert_id, actor_id, note, acknowledged_at … }
+message AlertEscalated    { … alert_id, previous/current_level, EscalationTrigger … }
+message AlertResolved     { … alert_id, AlertDisposition, actor_id, auto_resolved … }
+
+enum EscalationTrigger {
+  ESCALATION_TRIGGER_UNSPECIFIED    = 0;
+  ESCALATION_TRIGGER_UNACKNOWLEDGED = 1;
+  ESCALATION_TRIGGER_LEVEL_INCREASE = 2;
+  ESCALATION_TRIGGER_MANUAL         = 3;
+}
+
+enum IncidentStatus {
+  INCIDENT_STATUS_UNSPECIFIED = 0; INCIDENT_STATUS_OPEN = 1;
+  INCIDENT_STATUS_UNDER_REVIEW = 2; INCIDENT_STATUS_CLOSED = 3;
+}
+
+message Incident {
+  string incident_id = 1; string reference = 2;   // "INC-2026-0087" (§2.4.3)
+  IncidentStatus status = 3;
+
+  pk.nust.cuas.threat.v1.ThreatLevel severity = 10;
+  string title = 11; string sector_id = 12;
+  repeated string track_ids = 20; repeated string alert_ids = 21;
+
+  string declared_by = 30;   // a user id — never a service
+  string assigned_to = 32;
+  google.protobuf.Timestamp opened_at = 40; google.protobuf.Timestamp closed_at = 41;
+  AlertDisposition closure_disposition = 42; string closure_summary = 43;
+  DecisionChain    decision_chain      = 50;
+  string schema_version = 60; string correlation_id = 61;
+}
+
+// One line of §2.4.3's event sequence. actor_id empty ⇒ a "SYS" entry.
+message IncidentEvent {
+  string incident_id = 1; string event_id = 2;
+  string source_topic = 10; string source_id = 11; string summary = 12;
+  string actor_id = 20; google.protobuf.Timestamp occurred_at = 30;
+  string schema_version = 40; string correlation_id = 41;
+}
+
+// A reference, never a payload.
+message EvidenceRef {
+  string evidence_id = 1; string incident_id = 2; EvidenceKind kind = 3;
+  string uri = 10;        // EvidenceStore URI
+  string sha256 = 11;     // makes an exported bundle verifiable off-platform
+  uint64 size_bytes = 12; string content_type = 13;
+  string source_id = 20;  google.protobuf.Timestamp captured_at = 21;
+  string schema_version = 30; string correlation_id = 31;
+}
+
+enum EvidenceKind {
+  EVIDENCE_KIND_UNSPECIFIED = 0; EVIDENCE_KIND_DETECTION = 1;
+  EVIDENCE_KIND_TRACK_SNAPSHOT = 2; EVIDENCE_KIND_INFERENCE = 3;
+  EVIDENCE_KIND_ASSESSMENT = 4; EVIDENCE_KIND_FRAME = 5;
+  EVIDENCE_KIND_SPECTROGRAM = 6; EVIDENCE_KIND_AUDIT_EXTRACT = 7;
+  EVIDENCE_KIND_OPERATOR_NOTE = 8;
+}
+
+message DecisionChain {
+  pk.nust.cuas.threat.v1.Recommendation system_recommended = 1;
+  string           operator_decision  = 2;
+  string           authorised_by      = 10;
+  google.protobuf.Timestamp authorised_at = 12;
+  string           audit_ref          = 20;   // "audit:0x8f3a… ✓ chain valid" (§2.4.3)
+  EngagementAction engagement_action  = 30;
+}
+
+// Exactly one value, permanently.
+enum EngagementAction {
+  ENGAGEMENT_ACTION_UNSPECIFIED = 0;
+  ENGAGEMENT_ACTION_NONE        = 1;
+}
+```
+
+**Design decisions worth defending in review:**
+- **`EngagementAction` is a one-value enum, and that is the whole point.** §2.4.3's decision chain renders "ENGAGEMENT ACTION — NONE, outside system scope". Making it a typed field with one legal value asserts the platform's hard scope limit *structurally*: there is no value a producer could set that claims otherwise, and no consumer that must parse prose to be sure. A free-text field would have carried the same words with none of the guarantee. Adding a second value is an architecture amendment with supervisor approval, never a pull request.
+- **Severity reuses `threat.v1.ThreatLevel`.** An alert's severity *is* the threat level that raised it. A parallel four-value alert scale would be a second source of truth for one fact, and the two would diverge the first time a §6.3.4 threshold moved.
+- **`dedup_key` is on the wire and unique-constrained in the database.** §5.7 names duplicate alerts as the failure that destroys operator trust faster than any other. Application-level deduplication alone cannot survive two instances processing the same transition concurrently, so the constraint is in `alertdb` and the key is published so a consumer can deduplicate the same way the service does.
+- **`occurrence_count`, not a second alert.** A recurring transition inside the suppression window increments the open alert rather than raising another. The operator learns that it is still happening without the screen filling up — which is the behaviour suppression exists to produce, and the count is what stops it also hiding intensity.
+- **An incident is always declared by a person.** `declared_by` is a user id and never a service identity. §2.4.3 records "OPERATOR DECIDED — escalate to incident" as a human act; a system that could open an incident by itself would make that record untrue.
+- **`operator_decision` may contradict `system_recommended`, and the contract expects it to.** The divergence is the reason the chain is recorded at all: a system whose advice is always followed is one nobody is supervising.
+- **Evidence is referenced, never inlined.** The same rule §5.3 applies to IQ captures and video frames. An event carrying a spectrogram would put megabytes onto a topic that the gateway, reporting and audit all consume. `sha256` is what lets a bundle stay verifiable after it leaves the platform.
+- **`auto_resolved` distinguishes a closed alert from a reviewed one.** An alert closed because its track was lost is not evidence that anybody looked at it, and the false-positive rate computed from dispositions would be wrong if the two were conflated.
+- **`AlertDisposition` keeps `INCONCLUSIVE`.** Forcing a verdict the operator does not have would corrupt the exact statistic the field exists to produce.
+
+### 5.3.5 Notification schema
+
+Section 4.1.9 names the notification events but does not define their fields. The schema is defined in `contracts/proto/notification.proto` (package `pk.nust.cuas.notification.v1`). `notification.sent.v1` carries `NotificationSent`; `notification.failed.v1` carries `NotificationFailed`.
+
+```protobuf
+syntax = "proto3";
+package pk.nust.cuas.notification.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum NotificationChannel {
+  NOTIFICATION_CHANNEL_UNSPECIFIED = 0; NOTIFICATION_CHANNEL_WEBSOCKET = 1;
+  NOTIFICATION_CHANNEL_EMAIL = 2; NOTIFICATION_CHANNEL_SMS = 3;
+  NOTIFICATION_CHANNEL_WEBHOOK = 4;
+}
+
+// A stable vocabulary for per-user preferences — deliberately not the source topic name.
+enum NotificationTrigger {
+  NOTIFICATION_TRIGGER_UNSPECIFIED = 0; NOTIFICATION_TRIGGER_ALERT_RAISED = 1;
+  NOTIFICATION_TRIGGER_ALERT_ESCALATED = 2; NOTIFICATION_TRIGGER_INCIDENT_CREATED = 3;
+  NOTIFICATION_TRIGGER_SENSOR_OFFLINE = 4; NOTIFICATION_TRIGGER_TEST = 5;
+}
+
+enum DeliveryFailureReason {
+  DELIVERY_FAILURE_REASON_UNSPECIFIED       = 0;
+  DELIVERY_FAILURE_REASON_PROVIDER_ERROR    = 1;   // retryable
+  DELIVERY_FAILURE_REASON_PROVIDER_TIMEOUT  = 2;   // retryable
+  DELIVERY_FAILURE_REASON_RATE_LIMITED      = 3;   // retryable
+  DELIVERY_FAILURE_REASON_RECIPIENT_UNKNOWN = 4;   // terminal
+  DELIVERY_FAILURE_REASON_CHANNEL_DISABLED  = 5;   // terminal
+  DELIVERY_FAILURE_REASON_REJECTED          = 6;   // terminal
+}
+
+message NotificationSent {
+  string notification_id = 1;
+  NotificationChannel channel = 2; NotificationTrigger trigger = 3;
+  string dedup_key = 4;              // cross-channel: one recipient, one alert, one page
+  string recipient_user_id = 10;     // the channel address is NOT on the wire
+  string alert_id = 20; string incident_id = 21; string track_id = 22;
+  string provider_message_id = 30; uint32 attempt = 31; uint32 latency_ms = 32;
+  google.protobuf.Timestamp sent_at = 40;
+  string schema_version = 50; string correlation_id = 51;
+}
+
+message NotificationFailed {
+  string notification_id = 1;
+  NotificationChannel channel = 2; NotificationTrigger trigger = 3;
+  string dedup_key = 4; string recipient_user_id = 10;
+  string alert_id = 20; string incident_id = 21; string track_id = 22;
+  DeliveryFailureReason reason = 30; string detail = 31;
+  uint32 attempt = 40; bool will_retry = 41;
+  google.protobuf.Timestamp next_attempt_at = 42;
+  google.protobuf.Timestamp failed_at = 50;
+  string schema_version = 60; string correlation_id = 61;
+}
+```
+
+**Design decisions worth defending in review:**
+- **The channel address is deliberately not on the wire.** An email address or phone number on a topic that audit mirrors and reporting indexes would spread personal data across retention policies nobody chose for it (§7.9). The address lives in `notifydb`, keyed by recipient and channel; the event carries `recipient_user_id`.
+- **Neither event carries the message body.** Both describe an *attempt's outcome*. The content is derived from the alert or incident that triggered it and is already on its own topic; duplicating it would give one operator-facing string two topics with two retentions.
+- **`notification.failed.v1` fires per attempt, not only at final failure.** A channel degrading through retries is operationally interesting before it gives up; a topic reporting only terminal failures would show a provider as healthy right up to the moment it was not. `will_retry` is what separates the two for a consumer that only wants the last one.
+- **`NotificationTrigger` is not the source topic name.** Per-user channel preferences are stored against this vocabulary, and topic names carry a major version (§5.5) — a `.v2` bump would silently invalidate every stored preference if the topic name were the key.
+- **Failure reasons are grouped by retryability, and it is documented in the enum.** Retrying an unknown recipient can never succeed and would consume the per-channel rate budget that a genuinely retryable alert needs.
 
 ## 5.4 Serialization & Schema Registry
 
@@ -1794,6 +2142,39 @@ message HealthResponse {
 | **Latency budget** | p95 ≤ 40 ms |
 | **Compute** | CPU only (2 vCPU, 2 GB) |
 | **Constraint** | **Recommendations are advisory strings only.** The output vocabulary is closed: `MONITOR`, `TRACK_AND_MONITOR`, `REQUEST_VISUAL_ID`, `ESCALATE_TO_SUPERVISOR`, `RECOMMEND_OPERATOR_REVIEW`. There is no output value that encodes an engagement action. |
+
+**Where the rules engine runs.** The weighted rules engine is Track A code in `threat-assessment` (§4.1.7); only the gradient-boosted residual is a Track B service, and it arrives as one factor on `ai.inference.completed.v1`, never as a synchronous call. §4.1.7 carries the full reasoning.
+
+#### Scoring weights (amended M7.A — normative)
+
+§2.4.2's breakdown panel is the only place the weights appear, and it renders them as a worked example rather than a specification. They are promoted here to normative defaults, unchanged:
+
+| Factor | Weight | Source |
+|---|---|---|
+| Model confidence | 0.40 | fused classification confidence, from `ai.inference.completed.v1` |
+| Proximity to asset | 0.25 | CPA distance to the nearest protected asset (`track.v1.ClosestPointOfApproach`) |
+| Closing velocity | 0.20 | rate of closure along the CPA geometry; zero when `closing` is false |
+| Trajectory intent | 0.10 | whether the predicted path holds toward the asset (`predicted_trajectory`) |
+| Sensor agreement | 0.05 | cross-modality corroboration |
+
+Weights sum to 1.00, so the composite is in `[0,1]` by construction. **A missing factor contributes nothing and is reported as absent** rather than defaulted — a track outside every asset's prediction horizon has no proximity evidence, and both a 0.0 ("very far") and a 1.0 ("on top of it") would be claims the system cannot support. The shortfall surfaces as `AssessmentConfidence.available_weight` (§5.3.3), so a 0.62 computed from five factors and a 0.62 computed from two are distinguishable by the operator reading them.
+
+#### Threat level thresholds (amended M7.A — normative)
+
+§2.4.2 fixes only `CRITICAL ≥ 0.80`. The remaining boundaries were absent, and a Low/Medium/High classification cannot be implemented without them:
+
+| Level | Composite score | Console glyph (§2.4.2) |
+|---|---|---|
+| LOW | `< 0.30` | `●LOW` |
+| MEDIUM | `0.30 – 0.55` | `■MED` |
+| HIGH | `0.55 – 0.80` | `◆HIGH` |
+| CRITICAL | `≥ 0.80` | `▲CRIT` |
+
+Boundaries are lower-inclusive, upper-exclusive; `CRITICAL ≥ 0.80` is §2.4.2's own value and is what anchors the scale. They reproduce §2.4.2's own rendered rows: 0.853 → CRITICAL, 0.74 and 0.71 → HIGH, 0.58 and 0.52 → MEDIUM, 0.31 → LOW.
+
+**An unassessed track is not LOW.** A track with no evaluable factor has no level (`THREAT_LEVEL_UNSPECIFIED`, rendered `○UNK`), because a track nothing has judged is not the same as a track judged harmless, and collapsing the two would let an unjudged object read as the safest thing on the screen.
+
+**Every number on this page is a policy default, not a constant.** Weights, thresholds and the reliability floor are rows in `threat_policies`/`policy_versions` (§4.1.7), versioned and pushed by `platform.config.policy.updated.v1`. Retuning a deployment's sensitivity is a policy revision with an audit trail, not a redeploy — and every assessment carries the `policy_version` that produced it, so a past score can always be reproduced against the rules that were actually in force.
 
 ### 6.3.5 Future Services (contract-ready, not built in the 16 weeks)
 
