@@ -109,6 +109,7 @@ documentation assumes.
 | `buf lint` / `buf breaking` / `buf generate` (M8.A) | ✅ Executed | `config.proto` (ConfigUpdated + WatchConfig stream) and `report.proto` authored; lint clean, **breaking clean** (additive new files); §5.2 catalogue amended (32 → 37 primary topics) |
 | `mvn test` (M8.B config-service) | ✅ Executed | config-service: **27 tests, 0 failures** (versioning/rollback/change-log-audit `@SpringBootTest` on Testcontainers PostgreSQL; a WatchConfig gRPC handler test; canonicalizer/authorizer/broadcaster/aggregate/layering unit tests). One fix: canonicalisation must read into generic Maps + `ORDER_MAP_ENTRIES_BY_KEYS` (a `JsonNode` serialises in insertion order, so `SORT_PROPERTIES_ALPHABETICALLY` does not sort its keys) |
 | `mvn test` (M8.C reporting-service) | ✅ Executed | reporting-service: **23 tests, 0 failures** (an async generate→render→store→download `@SpringBootTest` on Testcontainers PostgreSQL, incl. projection idempotency and a terminal-failure path; PDF/CSV/JSON renderer tests parsing the output; params/job/generator/registry/layering unit tests). PDFBox 2.0.31 added for PDF export |
+| `docker compose --profile observability config` (M8.D) | ✅ Executed | Prometheus/Grafana/Loki/Tempo stack validates; the four §8.6 dashboards are valid JSON. IaC only — no service code |
 | `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
 
 ### Testcontainers on Docker Engine 29

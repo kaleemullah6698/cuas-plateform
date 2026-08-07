@@ -1,12 +1,14 @@
 # CUAS platform — development topology (ARCHITECTURE.md section 8.2)
 #
 # Profiles:
-#   infra     infrastructure only
-#   platform  + Track A services
-#   ai        + Track B AI services
+#   infra          infrastructure only
+#   platform       + Track A services
+#   ai             + Track B AI services
+#   observability  Prometheus + Grafana + Loki + Tempo (§8.6)
 #
 #   docker compose --profile infra up -d
 #   docker compose --profile platform up -d
+#   docker compose --profile observability up -d
 #   AI_PROVIDER_MODE=mock docker compose --profile platform up -d
 #
 # Infrastructure services are configured for a working first-run (KRaft Kafka with advertised
@@ -349,6 +351,52 @@ services:
       context: ./ai-services/threat-scorer
       dockerfile: Dockerfile
 
+  # ── Observability (ARCHITECTURE.md §8.6) — `docker compose --profile observability up -d` ──
+  prometheus:
+    <<: *defaults
+    profiles: [observability]
+    image: prom/prometheus:v2.54.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    ports: ["9090:9090"]
+    volumes:
+      - ./infrastructure/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+
+  loki:
+    <<: *defaults
+    profiles: [observability]
+    image: grafana/loki:3.2.0
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    ports: ["3100:3100"]
+    volumes:
+      - ./infrastructure/monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - lokidata:/loki
+
+  tempo:
+    <<: *defaults
+    profiles: [observability]
+    image: grafana/tempo:2.6.0
+    command: ["-config.file=/etc/tempo/tempo-config.yml"]
+    ports: ["3200:3200", "4317:4317", "4318:4318"]
+    volumes:
+      - ./infrastructure/monitoring/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - tempodata:/var/tempo
+
+  grafana:
+    <<: *defaults
+    profiles: [observability]
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["3000:3000"]
+    depends_on: [prometheus, loki, tempo]
+    volumes:
+      - ./infrastructure/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+
 networks:
   cuas-internal:
     driver: bridge
@@ -359,3 +407,7 @@ volumes:
   esdata:
   redisdata:
   miniodata:
+  promdata:
+  lokidata:
+  tempodata:
+  grafanadata:

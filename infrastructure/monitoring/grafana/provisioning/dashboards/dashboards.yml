@@ -1,0 +1,15 @@
+# Grafana dashboard provisioning (ARCHITECTURE.md §8.6). The four dashboards ship as version-
+# controlled JSON under /var/lib/grafana/dashboards and are loaded at startup.
+apiVersion: 1
+
+providers:
+  - name: cuas
+    orgId: 1
+    folder: CUAS
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

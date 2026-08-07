@@ -1,0 +1,68 @@
+# Prometheus alerting rules (ARCHITECTURE.md §8.6), version-controlled.
+#
+# These are the platform-health conditions worth waking someone for. They map to the four §8.6
+# dashboards: pipeline lag/latency, AI error rate, security (auth failures, audit chain), and delivery.
+# Thresholds are conservative defaults; tuning is an ops task, not a code change.
+
+groups:
+  - name: availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }} is down"
+          description: "Prometheus has not scraped {{ $labels.service }} for 2 minutes."
+
+  - name: pipeline
+    rules:
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (service, le) (rate(http_server_requests_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }} p95 latency above 1s"
+          description: "95th-percentile request latency on {{ $labels.service }} exceeded 1s for 5m."
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum by (service) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          / sum by (service) (rate(http_server_requests_seconds_count[5m])) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.service }} 5xx rate above 5%"
+          description: "{{ $labels.service }} has returned more than 5% 5xx responses for 5m."
+
+  - name: security
+    rules:
+      # The highest-severity condition in the system (§4.1.11): the audit hash chain broke. Any
+      # non-zero count is page-worthy.
+      - alert: AuditChainBroken
+        expr: increase(cuas_audit_chain_broken_total[5m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: "Audit chain integrity failure"
+          description: "audit-service reported a broken hash chain — investigate immediately (§7.5)."
+
+      - alert: AuthFailureSpike
+        expr: sum(rate(cuas_auth_login_failures_total[5m])) > 5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Elevated authentication failures"
+          description: "More than 5 failed logins per second sustained for 5m — possible brute force."
+
+  - name: resilience
+    rules:
+      - alert: CircuitBreakerOpen
+        expr: resilience4j_circuitbreaker_state{state="open"} == 1
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "Circuit breaker open on {{ $labels.service }}"
+          description: "A resilience4j circuit breaker ({{ $labels.name }}) is open — a dependency is failing."

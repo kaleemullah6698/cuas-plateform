@@ -1,0 +1,61 @@
+# Prometheus scrape configuration (ARCHITECTURE.md §8.6).
+#
+# Every backend service exposes Micrometer metrics at /actuator/prometheus (management.endpoints
+# include prometheus). Prometheus scrapes each by its compose DNS name and port; the AI services and
+# infrastructure exporters are scraped when their profiles are up. Rules live alongside in rules/.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    platform: cuas
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Track A platform services ──
+  - job_name: platform
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api-gateway:8080"]
+        labels: {service: api-gateway, zone: edge}
+      - targets: ["auth-service:8081"]
+        labels: {service: auth-service, zone: identity}
+      - targets: ["user-service:8082"]
+        labels: {service: user-service, zone: identity}
+      - targets: ["sensor-ingestion:8083"]
+        labels: {service: sensor-ingestion, zone: pipeline}
+      - targets: ["track-correlation:8084"]
+        labels: {service: track-correlation, zone: pipeline}
+      - targets: ["ai-orchestrator:8085"]
+        labels: {service: ai-orchestrator, zone: pipeline}
+      - targets: ["threat-assessment:8086"]
+        labels: {service: threat-assessment, zone: pipeline}
+      - targets: ["alert-service:8087"]
+        labels: {service: alert-service, zone: operations}
+      - targets: ["notification-service:8088"]
+        labels: {service: notification-service, zone: operations}
+      - targets: ["reporting-service:8089"]
+        labels: {service: reporting-service, zone: operations}
+      - targets: ["audit-service:8090"]
+        labels: {service: audit-service, zone: governance}
+      - targets: ["config-service:8091"]
+        labels: {service: config-service, zone: governance}
+
+  # ── Track B AI services (up under the `ai` profile) ──
+  - job_name: ai-services
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["rf-classifier:9001"]
+        labels: {service: rf-classifier, zone: ai}
+      - targets: ["vision-detector:9002"]
+        labels: {service: vision-detector, zone: ai}
+      - targets: ["radar-rf-fusion:9003"]
+        labels: {service: radar-rf-fusion, zone: ai}
+      - targets: ["threat-scorer:9004"]
+        labels: {service: threat-scorer, zone: ai}

@@ -156,10 +156,12 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M7 complete; M8 in progress (M8.A contracts + M8.B config-service + M8.C reporting-service
-done).** 871 tests, 0 failures (821 at M7 + 27 config-service + 23 reporting-service; the full
-reactor compiles and packages clean). Infrastructure verified live (`scripts/verify-infra.sh`: 33
-passed). See `docs/ROADMAP.md` for what each milestone delivered and which defects it found.
+**M0–M8 complete.** 871 tests, 0 failures (821 at M7 + 27 config-service + 23 reporting-service; the
+full reactor compiles and packages clean). Infrastructure verified live (`scripts/verify-infra.sh`:
+33 passed). M8 was built **lean** (agreed with the user to reach the M9 frontend fastest): the
+reporting Elasticsearch indexing pipeline is deferred behind a port, and the observability stack
+ships as IaC. See `docs/ROADMAP.md` for what each milestone delivered and `docs/SECURITY-REVIEW.md`
+for the §7 hardening pass. **Next is M9 — the gateway WebSocket fan-out and the thin React frontend.**
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
@@ -187,8 +189,12 @@ topics into an **event-projection read model in its own reportdb** and aggregate
 cross-service DB reads); the Elasticsearch mirror is deferred behind the `ReportEventStore` port.
 Async job engine (202 + poll + download) on a bounded pool; artifacts filesystem-stored with sha256;
 `report.generation.started/generated/failed` published. RBAC `report:read`/`report:generate`.
-Remaining: **M8.D** the observability IaC stack (Prometheus/Grafana/Loki/Tempo compose + the four
-§8.6 dashboards + Prometheus rules) and the written §7 hardening pass.
+M8.D ✅ observability + hardening: the Prometheus/Grafana/Loki/Tempo stack as version-controlled IaC
+under `infrastructure/monitoring/` (scrape config, alert rules incl. the audit-chain-break page, the
+four §8.6 dashboards, datasource + dashboard provisioning), wired into docker-compose under an
+`observability` profile; and `docs/SECURITY-REVIEW.md`, a §7 pass confirming auth/RBAC/audit/rate-
+limiting are implemented and enforced server-side, with four tracked findings (gitleaks CI wiring,
+mTLS provisioning, Postgres RLS, ES ILM). **M8 is complete.**
 
 **M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
 trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,
