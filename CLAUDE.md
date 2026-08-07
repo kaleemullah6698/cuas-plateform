@@ -156,13 +156,20 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M9 complete.** Full `mvn clean verify` green: **17 modules, 933 backend tests, 0 failures/errors,
-BUILD SUCCESS**. Frontend (`frontend/`, its own npm build — lockfile committed): **17 Vitest tests +
-1 Playwright E2E** (the intrusion→alert flow), `tsc --noEmit` and `vite build` clean. Infra verified
-live (`scripts/verify-infra.sh`: 33). M8 was **lean** (reporting ES pipeline deferred behind a port;
-observability as IaC); M9 shipped the gateway WebSocket fan-out and a thin verification console. See
-`docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for the §7 hardening pass. **The
-backend-first build (M0–M9) is complete; the full §2 frontend console is a later phase.**
+**M0–M9 complete; M10 in progress (M10.A design system + command-center shell done).** Backend: full
+`mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
+(`frontend/`, its own npm build): **19 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean.
+Infra verified live (`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and
+`docs/SECURITY-REVIEW.md` for §7.
+
+**Roadmap amended (owner's direction): M10 professional operator console → M11 runtime deployment &
+full integration → M12 production readiness** (defined in `docs/ROADMAP.md` Phase 5). M10 builds the
+deferred full §2/§3 console on the real backend contracts, in committed groups: **A** ✅ design system
+(shadcn-style: Radix primitives + Tailwind 4 token theme — semantic + threat/status ramps) + the
+command-center `AppShell` (top bar, icon nav rail, routed workspace, accessible); **B** auth/session/
+profile/RBAC; **C** dashboard; **D** MapLibre map; **E** track detail; **F** alerts/incidents workflow;
+**G** reports/config/users/audit/notifications. **Two items are M11, not M10:** the gateway routes for
+the bare-path services (alert/config/report/notification — M9 finding G-4) and self-hosted map tiles.
 
 **M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway
 WebSocket fan-out (14 tests). The gateway now consumes `track.*`/`alert.raised`/`sensor.health` and

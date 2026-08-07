@@ -4,6 +4,8 @@ interface AuthState {
   accessToken: string | null;
   sessionId: string | null;
   isAuthenticated: boolean;
+  /** Operator display name — enriched from the decoded JWT in M10.B; a safe default until then. */
+  displayName: string;
   setSession: (accessToken: string, sessionId: string) => void;
   clear: () => void;
 }
@@ -18,6 +20,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   sessionId: null,
   isAuthenticated: false,
+  displayName: 'Operator',
   setSession: (accessToken, sessionId) => set({ accessToken, sessionId, isAuthenticated: true }),
-  clear: () => set({ accessToken: null, sessionId: null, isAuthenticated: false }),
+  clear: () =>
+    set({ accessToken: null, sessionId: null, isAuthenticated: false, displayName: 'Operator' }),
 }));

@@ -94,6 +94,16 @@ Ten milestones. The mapping to your informal week-plan is shown, with correction
 | **M7** | Assessment & alerting | `threat-assessment`, `alert-service`, `notification-service` | Week 4 |
 | **M8** | Config, reporting, observability, security hardening | `config-service`, `reporting-service`, monitoring | Weeks 4–8, cross-cutting |
 | **M9** | Real-time edge & thin frontend verification | gateway WebSocket, minimal frontend | Weeks 6–8 |
+| **M10** | Professional operator console | full `frontend/` — design system, map, all feature modules connected to the backend | Post-backend |
+| **M11** | Runtime deployment & full system integration | Dockerfiles, compose, seed users, simulator replay, frontend connected — the whole platform run together | Post-M10 |
+| **M12** | Production readiness | mTLS/secrets/Vault, load & stress, observability, reliability/DR, docs, CI/CD | Post-M11 |
+
+> **Milestones M10–M12 are a roadmap amendment (added post-M9 at the project owner's direction).** The
+> original backend-first plan ran M0–M9; the frontend beyond the M9 thin verification, full-platform
+> runtime bring-up, and production hardening were always "a later phase" (§Phase 3, and the ARCHITECTURE
+> §8.6 "K8s future" / §7.2 "deployment concern" notes). M10–M12 make that later phase explicit and
+> ordered: **M10** builds the complete operator experience; **M11** runs the whole platform together for
+> the first time and proves the sensor→operator path end to end; **M12** makes it deployable and hardened.
 
 ### Corrections to the week-plan, and why
 
@@ -1112,6 +1122,26 @@ M9 is delivered in four groups (approved plan): **A** gateway WebSocket fan-out 
 **M9.D — E2E, compose wiring & full verification** — ✅ **Complete.** The Playwright `intrusion→alert` spec — the ROADMAP-named M9 acceptance test — drives the **real built SPA** end to end: an operator signs in, the live track list fills from a `SNAPSHOT`+`DELTA`, and a critical alert appears on the strip. The gateway's REST and WebSocket are mocked in the browser (`page.route` / `page.routeWebSocket`), so it exercises the whole frontend — router, auth, external stores, the WebSocket client's subscribe/snapshot/delta/alert handling — without standing up the backend, whose own fan-out is covered by the gateway's Java WebSocket integration test. Chromium was installed to run it (finding R-1: the ~190 MB download needed a retry in this environment; the spec and `npm run test:e2e` are committed so it re-runs anywhere with `npx playwright install chromium`). The `web` docker-compose service builds the SPA and serves it behind nginx with an SPA fallback and a reverse proxy of `/api` and `/ws` to the API gateway, keeping the browser same-origin. **Final `mvn clean verify` is green: 17 modules, 933 backend tests, 0 failures/errors, BUILD SUCCESS** (plus 17 frontend Vitest tests and the E2E).
 
 **M9 is complete — and with it the M0–M9 backend-first build.** A browser signs in through the gateway, opens one authenticated WebSocket, and shows live tracks and a real alert driven by replayed data through the mock inference path — the end-to-end proof M9 set out to produce. The full §2 operator console (design system, map, charts, every screen) is a deliberate later frontend phase; the backend it will sit on is built, tested, observable, and secured.
+
+---
+
+# Phase 5 — Console, Integration & Production (M10–M12)
+
+Added post-M9 at the project owner's direction. These build the deferred frontend phase, then run and harden the whole platform.
+
+## M10 — Professional Operator Console
+
+Objective: the complete operator experience §2/§3 specify — a professional command centre, not a demo and not a mock UI, built on the real backend contracts. Deliverables: a real **design system** (spacing/typography/colour/elevation/motion tokens, accessible primitives — §2.1), **auth** (login, MFA, session management, refresh, profile, **role-based UI** gated on the §7.4 `perms`), a **command-centre dashboard**, a **live MapLibre map** (tracks, sensors, protected zones, alerts, drone paths/prediction), **track detail** (history, AI classification + confidence, timeline, sensor contributions, velocity/altitude, predicted trajectory), the **alert/incident workflow** (acknowledge → assign → investigate → resolve, incidents with timeline/notes/evidence — the alert-service surface), **reports** (M8 reporting-service — generate PDF/CSV/JSON, poll, download), **config** (config-service — runtime namespaces, history, rollback), **user management** (user-service — real permissions), **audit viewer** (audit-service — query + chain verify), **notification centre** (notification-service — preferences, history, test), and **real-time everything through the WebSocket** (§3.5). Everything is TypeScript-typed against the contracts, accessible, responsive, and polished. Dependencies: M0–M9 (the backend and the §3.5 stream). Testing: Vitest unit + jsdom component tests per feature; MSW-mocked API clients; Playwright E2E for the core operator flows; `tsc`/`vite build`/a11y checks. Built in coherent groups (design system → app shell + auth/RBAC → dashboard → map → tracks → alerts/incidents → reports/config/users/audit/notifications), each green and committed.
+
+> **Two integration notes carried into M11, not M10.** (1) The gateway routes only `/api/v1/auth|users|audit` today; `alert/notification/reporting/config` use bare paths and are not yet gateway-routed (M9 finding G-4). M10's API clients target a clean gateway surface; **wiring those routes is M11.** (2) Self-hosted MapLibre tiles (air-gap, §3.1) are provisioned in M11; M10 uses a public/blank style behind the operational overlays, swappable by configuration.
+
+## M11 — Runtime Deployment & Full System Integration
+
+Objective: run the entire platform together for the first time and prove the `sensor → ingestion → track-correlation → AI(mock) → threat → alert → notification → gateway → frontend → operator` path end to end. Deliverables: fix the service Dockerfiles (the in-container Maven build must pass `-Dbuf.skip=true` — the M9/M-review finding), a first-**admin seed/bootstrap** (auth/user — there is no seeded login today), wired **simulator replay**, the **gateway routes** for the bare-path services (G-4), `docker compose` bring-up of infra (PostgreSQL/Kafka/Redis/MinIO/Elasticsearch) + all services + AI mock + the frontend `web` container, and a **live smoke/acceptance test** of the intrusion→alert path through the running system. Dependencies: M10. Testing: a scripted end-to-end run; health/readiness across services; the operator sees a replayed intrusion become a live alert in the real console.
+
+## M12 — Production Readiness
+
+Objective: make it deployable and demonstrate engineering maturity. Deliverables span **security** (mTLS + 24 h cert rotation §7.2, secrets/Vault §7.7, `gitleaks` in CI, OWASP review, rate-limit validation — closing SECURITY-REVIEW SR-1/SR-2 and the ES ILM SR-4), **performance** (load/stress to the §1.x track ceilings, 10k-track soak, memory/CPU profiling against the §3.7 budgets), **observability** (the M8.D Prometheus/Grafana/Loki/Tempo stack exercised under load, alert-rule tuning, trace continuity), **reliability** (backup/restore, failover, DR, health checks, rolling restart), **documentation** (deployment/operations/administrator/developer guides, runbooks, architecture diagrams), and **CI/CD** (GitHub Actions building/scanning/deploying, versioning and a release process). Dependencies: M11.
 
 ---
 

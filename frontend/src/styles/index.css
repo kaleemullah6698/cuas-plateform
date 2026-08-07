@@ -1,33 +1,138 @@
 @import 'tailwindcss';
 
-/* The design system (§2.1) is deliberately not built in M9 — this is a thin verification console.
-   A small set of tokens keeps the login, track list and alert strip legible in the operator's dark
-   environment without pulling in the full token set. */
-:root {
-  --bg: #0b0f14;
-  --panel: #131a22;
-  --border: #223040;
-  --text: #e6edf3;
-  --text-dim: #93a1b0;
-  --accent: #3b82f6;
-  --threat-critical: #ef4444;
-  --threat-high: #f59e0b;
-  --threat-medium: #eab308;
-  --threat-low: #22c55e;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --down: #ef4444;
+/* ============================================================================
+   C-UAS Operator Console — design tokens (ARCHITECTURE.md §2.1)
+   A dense, dark command-centre system. Semantic tokens (shadcn-style naming) so
+   components never hard-code a hex; the domain threat/status ramps are first-class.
+   ========================================================================== */
+@theme {
+  /* Surfaces — layered from deepest to most raised */
+  --color-background: #0a0e14;
+  --color-surface: #0f141b;
+  --color-card: #121821;
+  --color-elevated: #171f2b;
+  --color-popover: #1a2330;
+  --color-overlay: rgb(6 9 13 / 0.72);
+
+  /* Lines */
+  --color-border: #1f2937;
+  --color-border-strong: #2b3746;
+  --color-input: #232f3e;
+  --color-ring: #3b82f6;
+
+  /* Text */
+  --color-foreground: #e7eef6;
+  --color-muted-foreground: #93a1b1;
+  --color-subtle-foreground: #64717f;
+
+  /* Brand / interaction */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2f6fd6;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #22d3ee;
+  --color-accent-foreground: #04121a;
+  --color-selection: rgb(59 130 246 / 0.16);
+
+  /* Threat ramp (§2.5 — worst always wins) */
+  --color-critical: #f0454e;
+  --color-high: #f5872b;
+  --color-medium: #eab308;
+  --color-low: #2fbf71;
+  --color-unknown: #6b7887;
+
+  /* Operational status */
+  --color-ok: #2fbf71;
+  --color-warn: #f5872b;
+  --color-down: #f0454e;
+  --color-info: #38bdf8;
+  --color-destructive: #f0454e;
+  --color-destructive-foreground: #ffffff;
+
+  /* Typography */
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem; /* 12 */
+  --text-xs--line-height: 1.05rem;
+  --text-sm: 0.8125rem; /* 13 — dense default */
+  --text-sm--line-height: 1.2rem;
+  --text-base: 0.875rem; /* 14 */
+  --text-base--line-height: 1.35rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+
+  /* Radius — command centres read square */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Elevation — restrained; rings and borders carry depth on dark */
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 8px 28px -6px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+
+  /* Motion — animation signals a state change, never decorates (§2.1) */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-selection);
+  }
+  /* Focus is always visible and consistent — accessibility is not optional here. */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 1px;
+  }
+  /* Thin, unobtrusive scrollbars that match the surface. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 6px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
 }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+/* Utility: tabular, monospaced telemetry numbers that don't jitter as they update. */
+@utility tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
