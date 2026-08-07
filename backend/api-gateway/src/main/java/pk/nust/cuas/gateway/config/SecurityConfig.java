@@ -86,6 +86,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login",
                                 "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/auth/jwks").permitAll()
+                        // The WebSocket upgrade (§3.5) carries its token on the URL, not a bearer
+                        // header, so it is permitted here and authenticated in the handshake
+                        // interceptor instead — no anonymous connection is ever established.
+                        .requestMatchers(HttpMethod.GET, "/ws").permitAll()
                         // The probes section 4.1.1 names, plus Actuator's own.
                         .requestMatchers(HttpMethod.GET, "/health", "/health/ready").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**",

@@ -156,12 +156,22 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M8 complete.** 871 tests, 0 failures (821 at M7 + 27 config-service + 23 reporting-service; the
-full reactor compiles and packages clean). Infrastructure verified live (`scripts/verify-infra.sh`:
-33 passed). M8 was built **lean** (agreed with the user to reach the M9 frontend fastest): the
-reporting Elasticsearch indexing pipeline is deferred behind a port, and the observability stack
-ships as IaC. See `docs/ROADMAP.md` for what each milestone delivered and `docs/SECURITY-REVIEW.md`
-for the §7 hardening pass. **Next is M9 — the gateway WebSocket fan-out and the thin React frontend.**
+**M0–M8 complete; M9 in progress (M9.A gateway WebSocket fan-out done).** 885 tests, 0 failures (871
+at M8 + 14 for the gateway WS core). Infrastructure verified live (`scripts/verify-infra.sh`: 33
+passed). M8 was built **lean** (reporting ES pipeline deferred behind a port; observability as IaC).
+See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for the §7 hardening pass.
+
+**M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway
+WebSocket fan-out (14 tests). The gateway now consumes `track.*`/`alert.raised`/`sensor.health` and
+fans them to the browser over `/ws` — JSON envelope (`CONNECTED`/`SNAPSHOT`/`DELTA`/`ALERT`/
+`HEARTBEAT`/`ERROR`) per §3.5, per-channel monotonic `seq`, 5 s heartbeat, coalesced track/sensor
+deltas (alerts immediate), JWT-on-upgrade validated by the existing JWKS decoder incl. revocation,
+per-channel authorisation (`alerts` needs `alert:read`), and the §7 five-connections-per-user limit.
+**Two approved decisions (D-1, D-2):** the `SNAPSHOT` is built from the gateway's own in-memory track
+view — `track.state.snapshot.v1` has **no producer** and its production is deferred — and the session
+registry is in-memory (Redis-backed registry deferred). Both recorded in `docs/ARCHITECTURE.md` §3.5
+and the §5.2 footnote. Remaining: **M9.B** frontend realtime core, **M9.C** thin UI, **M9.D** E2E +
+docs.
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as

@@ -110,7 +110,8 @@ documentation assumes.
 | `mvn test` (M8.B config-service) | ✅ Executed | config-service: **27 tests, 0 failures** (versioning/rollback/change-log-audit `@SpringBootTest` on Testcontainers PostgreSQL; a WatchConfig gRPC handler test; canonicalizer/authorizer/broadcaster/aggregate/layering unit tests). One fix: canonicalisation must read into generic Maps + `ORDER_MAP_ENTRIES_BY_KEYS` (a `JsonNode` serialises in insertion order, so `SORT_PROPERTIES_ALPHABETICALLY` does not sort its keys) |
 | `mvn test` (M8.C reporting-service) | ✅ Executed | reporting-service: **23 tests, 0 failures** (an async generate→render→store→download `@SpringBootTest` on Testcontainers PostgreSQL, incl. projection idempotency and a terminal-failure path; PDF/CSV/JSON renderer tests parsing the output; params/job/generator/registry/layering unit tests). PDFBox 2.0.31 added for PDF export |
 | `docker compose --profile observability config` (M8.D) | ✅ Executed | Prometheus/Grafana/Loki/Tempo stack validates; the four §8.6 dashboards are valid JSON. IaC only — no service code |
-| `npm ci` (frontend) | ⬜ Not yet | Frontend deferred to M9 |
+| `mvn test` (M9.A gateway WebSocket) | ✅ Executed | api-gateway: **94 tests, 0 failures** (14 new: a `StandardWebSocketClient` `@SpringBootTest` covering handshake auth, subscribe→snapshot, coalesced delta, immediate alert, heartbeat, resnapshot and per-channel authz, plus hub/registry/mapper units). Added `spring-boot-starter-websocket` + a `latest`-offset fan-out consumer |
+| `npm ci` (frontend) | ⬜ Not yet | Frontend build/test begins with M9.B (Node 22 present; lockfile to be generated) |
 
 ### Testcontainers on Docker Engine 29
 

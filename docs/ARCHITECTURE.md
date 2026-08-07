@@ -867,6 +867,25 @@ type ServerMessage =
   | { type: 'ERROR';        code: string; message: string; retryable: boolean };
 ```
 
+**Server side of the envelope (M9 amendment).** The envelope is **JSON**, not a protobuf contract: the
+gateway consumes the Kafka protobuf events (`track.updated.v1` → `Track`, `alert.raised.v1` → `Alert`,
+`sensor.health.v1` → `SensorHealth`) and translates them to the JSON views above. Two decisions were
+taken for M9 and are recorded here rather than left implicit:
+
+- **The `SNAPSHOT` is built from the gateway's own live view, not from a topic.** §5.2 lists
+  `track.state.snapshot.v1` as "Track Correlation → Gateway (resnapshot)", but that topic has **no
+  producer**. Rather than add compacted-snapshot production to track-correlation for a thin
+  verification, the gateway maintains an in-memory `Map<trackId, Track>` from the `track.*` stream it
+  already consumes and serves that as the snapshot. Producing `track.state.snapshot.v1` remains a
+  documented deferral (it is the multi-instance-scale answer, alongside the Redis session registry).
+- **The session registry is in-memory per instance for M9.** §4.1.1's Redis-backed registry — which
+  lets several gateway instances share fan-out — is deferred with the same reasoning; M9 runs a single
+  fan-out node, which is the thin-verification scope.
+
+`track`/`sensor` deltas are coalesced latest-wins on a short window (the §2.5.1 4 Hz console budget);
+`ALERT` bypasses coalescing and is pushed on arrival. The upgrade carries its access token on the URL
+(`/ws?token=…`) validated by the same JWKS decoder — including revocation — as every other request.
+
 ## 3.6 Route Structure & Lazy Loading
 
 ```typescript
@@ -1230,7 +1249,7 @@ flowchart LR
 | `track.lost.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Threat, Alert, Audit |
 | `track.merged.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Threat, Alert, Gateway, Audit |
 | `track.classified.v1` | `trackId` | 6 | 30 d | delete | Track Correlation | Threat, Gateway, Audit |
-| `track.state.snapshot.v1` | `trackId` | 6 | ∞ | **compact** | Track Correlation | Gateway (resnapshot) |
+| `track.state.snapshot.v1` | `trackId` | 6 | ∞ | **compact** | Track Correlation¹ | Gateway (resnapshot) |
 | `ai.inference.requested.v1` | `trackId` | 6 | 24 h | delete | Orchestrator | Reporting |
 | `ai.inference.completed.v1` | `trackId` | 6 | 7 d | delete | Orchestrator | Threat, Track Correlation, Audit |
 | `ai.inference.failed.v1` | `trackId` | 3 | 30 d | delete | Orchestrator | Alert, Reporting |
@@ -1259,6 +1278,10 @@ flowchart LR
 | `platform.gateway.access.v1` | `userId` | 3 | 7 d | delete | API Gateway | Reporting |
 | `platform.gateway.ratelimit.v1` | `identity` | 3 | 30 d | delete | API Gateway | Alert, Reporting |
 | `*.DLQ` | original key | 3 | 30 d | delete | Any consumer | Ops tooling |
+
+¹ **Not produced yet (M9).** No service produces `track.state.snapshot.v1`. For M9 the gateway builds
+its resnapshot from its own in-memory view of the `track.*` stream (see §3.5, "Server side of the
+envelope"); compacted-snapshot production is a documented deferral for multi-instance scale.
 
 **Topic naming:** `<domain>.<entity>.<event>.v<major>`. The major version lives in the topic name — a breaking schema change creates a new topic and both run in parallel during migration. This is the only versioning strategy that survives a heterogeneous, independently-deployed consumer set.
 

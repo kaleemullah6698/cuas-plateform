@@ -24,6 +24,15 @@ spring:
         # Edge telemetry must never hold up a request; a slow broker is dropped, not waited on.
         max.block.ms: 2000
         delivery.timeout.ms: 5000
+    consumer:
+      # The WebSocket fan-out (§4.1.1): the gateway is a live edge, not a durable processor, so it
+      # reads from `latest` — a restart resumes the live view rather than replaying history.
+      group-id: ${GATEWAY_FANOUT_GROUP:api-gateway-fanout}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      auto-offset-reset: latest
+      properties:
+        max.poll.records: 500
 
 server:
   port: 8080
@@ -47,6 +56,20 @@ gateway:
   access-log:
     # Section 4.1.1 samples the access stream. Rejections are always published regardless.
     sample-rate: ${GATEWAY_ACCESS_SAMPLE_RATE:0.1}
+
+  # WebSocket fan-out (§3.5, §2.5.2). One multiplexed connection per session; the browser passes its
+  # access token on the upgrade URL (it cannot set an Authorization header on a WS), validated by the
+  # same JWKS decoder as every other request.
+  ws:
+    # Track/sensor deltas are coalesced latest-wins on this window (the §2.5.1 4 Hz console budget);
+    # alerts bypass it and are pushed immediately.
+    flush-interval-ms: ${GATEWAY_WS_FLUSH_MS:250}
+    # Heartbeat cadence (§2.5.2: every 5s, client presumes dead at 15s).
+    heartbeat-interval-ms: ${GATEWAY_WS_HEARTBEAT_MS:5000}
+    # Concurrent connections per user; the oldest is closed when a sixth opens (§7 limits table).
+    max-sessions-per-user: ${GATEWAY_WS_MAX_PER_USER:5}
+    # Origins allowed to open the WS. Empty means none, so a deployment that forgets serves no browser.
+    allowed-origins: ${GATEWAY_WS_ALLOWED_ORIGINS:}
 
   # Routing table (section 4.1.1). Each milestone adds its service as it becomes routable.
   routes:
