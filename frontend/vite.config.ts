@@ -18,6 +18,7 @@ export default defineConfig({
     // switch to jsdom per-file with a `// @vitest-environment jsdom` pragma.
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    setupFiles: ['./src/test/setup.ts'],
     clearMocks: true,
   },
 });

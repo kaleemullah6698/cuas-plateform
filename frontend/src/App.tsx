@@ -1,11 +1,28 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { RealtimeProvider } from '@/app/RealtimeContext';
+import { ProtectedShell } from '@/app/ProtectedShell';
+import { LoginPage } from '@/features/auth/LoginPage';
+import { TrackConsole } from '@/features/tracks/TrackConsole';
+
 /**
- * Application shell.
- *
- * ARCHITECTURE.md section 3.3 defines the full component hierarchy:
- * AuthProvider > RealtimeProvider > AppShell > (banner, nav, alert strip, outlet, status bar).
- *
- * Scaffold only. Providers and shell chrome are not implemented.
+ * The thin M9 console (ARCHITECTURE.md §3.6, scoped down): a login route, and one protected route —
+ * the live track list, framed by the shell's connection banner and alert strip. The full route tree
+ * (map, timeline, sensors, incidents, audit, reports, admin) is deferred to a later frontend phase;
+ * this exists to verify the backend and the stream end to end.
  */
 export default function App() {
-  return null;
+  return (
+    <RealtimeProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route element={<ProtectedShell />}>
+            <Route path="/ops/tracks" element={<TrackConsole />} />
+            <Route index element={<Navigate to="/ops/tracks" replace />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/ops/tracks" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </RealtimeProvider>
+  );
 }

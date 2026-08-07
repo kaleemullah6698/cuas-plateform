@@ -176,10 +176,15 @@ non-visual layer — `WebSocketClient` (token-on-upgrade, backoff+jitter reconne
 seq-gap→resnapshot, two-gaps→degraded), the `TrackStore` external store (Map + rAF-coalesced flush,
 ring-capped, `useSyncExternalStore` — track updates never pass through React state per message), the
 `AlertStore` (immediate, never coalesced), `ConnectionStore`, and the auth client/store (access token
-in memory only, §7.3). TS types mirror the gateway envelope exactly. **Frontend is a separate npm
-project** (`frontend/`), verified with `npm --prefix frontend test` / `typecheck` — it is NOT in the
-Maven reactor, so `mvn clean verify` does not cover it. Remaining: **M9.C** thin UI (login, track
-list, alert strip), **M9.D** E2E + compose wiring + docs.
+in memory only, §7.3). TS types mirror the gateway envelope exactly. **M9.C** ✅ thin UI (17 frontend
+tests total; `vite build` clean at 79 KB gzip, under the §3.6 budget): a login screen (with the MFA
+branch), a `ProtectedShell` that guards routes and — because the token is memory-only — sends a
+refreshed tab back to login, the live `TrackConsole` bound to the external store, the immediate
+`AlertStrip`, and the §2.5.2 connection-lost/degraded banner with track desaturation. React Router,
+one `Realtime` instance via context. **Frontend is a separate npm project** (`frontend/`), verified
+with `npm --prefix frontend test` / `typecheck` / `build` — NOT in the Maven reactor, so `mvn clean
+verify` does not cover it. Remaining: **M9.D** Playwright E2E (best-effort per R-1) + compose wiring +
+final verify + docs.
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
