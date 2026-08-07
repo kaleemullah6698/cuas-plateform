@@ -156,11 +156,13 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M8 complete; M9 in progress (M9.A gateway WS + M9.B frontend realtime core done).** Backend:
-885 tests, 0 failures (871 at M8 + 14 for the gateway WS core). Frontend (`frontend/`, its own npm
-build — `npm install` done, lockfile committed): 12 Vitest tests, `tsc --noEmit` clean. Infra verified
+**M0–M9 complete.** Full `mvn clean verify` green: **17 modules, 933 backend tests, 0 failures/errors,
+BUILD SUCCESS**. Frontend (`frontend/`, its own npm build — lockfile committed): **17 Vitest tests +
+1 Playwright E2E** (the intrusion→alert flow), `tsc --noEmit` and `vite build` clean. Infra verified
 live (`scripts/verify-infra.sh`: 33). M8 was **lean** (reporting ES pipeline deferred behind a port;
-observability as IaC). See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for §7.
+observability as IaC); M9 shipped the gateway WebSocket fan-out and a thin verification console. See
+`docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for the §7 hardening pass. **The
+backend-first build (M0–M9) is complete; the full §2 frontend console is a later phase.**
 
 **M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway
 WebSocket fan-out (14 tests). The gateway now consumes `track.*`/`alert.raised`/`sensor.health` and
@@ -183,8 +185,12 @@ refreshed tab back to login, the live `TrackConsole` bound to the external store
 `AlertStrip`, and the §2.5.2 connection-lost/degraded banner with track desaturation. React Router,
 one `Realtime` instance via context. **Frontend is a separate npm project** (`frontend/`), verified
 with `npm --prefix frontend test` / `typecheck` / `build` — NOT in the Maven reactor, so `mvn clean
-verify` does not cover it. Remaining: **M9.D** Playwright E2E (best-effort per R-1) + compose wiring +
-final verify + docs.
+verify` does not cover it. **M9.D** ✅ E2E + wiring + verify: the Playwright `intrusion→alert` spec
+drives the *real built SPA* (sign in → track via `SNAPSHOT`+`DELTA` → critical alert on the strip)
+with only the gateway REST/WS mocked in the browser — it **passes** (Chromium installed per R-1). The
+`web` compose service builds the SPA and serves it behind nginx with an SPA fallback and a reverse
+proxy of `/api` and `/ws` to the gateway (same-origin browser). Full `mvn clean verify` green (933
+tests). **M9 is complete**, and with it the M0–M9 backend-first build.
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
