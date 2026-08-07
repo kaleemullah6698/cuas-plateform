@@ -1,20 +1,63 @@
-# reporting-service — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# reporting-service — ARCHITECTURE.md §4.1.10
+#
+# Templated, asynchronously-generated reports over an event-projection read model. Consumes the domain
+# topics into report_events (its own reportdb) and aggregates reports over that projection; publishes
+# report.generation.started/generated/failed. Owns reportdb.
 
 spring:
   application:
     name: reporting-service
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/reportdb
     username: ${POSTGRES_USER:cuas}
     password: ${POSTGRES_PASSWORD:}
+
   jpa:
     open-in-view: false
     hibernate:
+      # Flyway owns the schema; Hibernate validates against it and never alters it.
       ddl-auto: validate
-  flyway:
-    enabled: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: reporting-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      auto-offset-reset: earliest
+      properties:
+        max.poll.records: 200
+        max.poll.interval.ms: 300000
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
+
+# Report generation tunables (see ReportingProperties).
+reporting:
+  # The filesystem artifact store serves development; MinIO replaces it behind the same port at scale.
+  artifact-root: ${REPORT_ARTIFACT_ROOT:./reports}
+  worker:
+    core-threads: 2
+    max-threads: 4
+    queue-capacity: 50
 
 server:
   port: 8089

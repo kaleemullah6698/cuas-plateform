@@ -4,12 +4,12 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Templated async report generation over Elasticsearch
+ * Reporting-service (ARCHITECTURE.md §4.1.10): templated, asynchronously-generated reports (incident,
+ * daily summary, sensor performance, fusion efficacy) exported as PDF, JSON or CSV.
  *
- * <p>See ARCHITECTURE.md section 4.1 for this service's responsibilities,
- * data ownership, published and consumed events, and scaling characteristics.
- *
- * <p>Scaffold only. No beans, endpoints, or persistence are wired yet.
+ * <p>Consumes the domain topics into an event-projection read model in {@code reportdb} and aggregates
+ * reports over it; publishes {@code report.generation.started/generated/failed}. Elasticsearch is the
+ * scale-out mirror of the projection, a documented follow-on behind the {@code ReportEventStore} port.
  */
 @SpringBootApplication
 public class ReportingServiceApplication {
