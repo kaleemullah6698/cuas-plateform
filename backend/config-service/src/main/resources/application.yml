@@ -1,20 +1,52 @@
-# config-service — ARCHITECTURE.md section 4.1
-# Scaffold configuration. No service connections are active.
+# config-service — ARCHITECTURE.md §4.1.12
+#
+# Runtime configuration without redeploy: namespaced values with a version history and before/after
+# change auditing, pushed to services over the gRPC WatchConfig stream and mirrored on the compact
+# platform.config.* topics. Owns configdb. Consumes nothing.
 
 spring:
   application:
     name: config-service
+
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/configdb
     username: ${POSTGRES_USER:cuas}
     password: ${POSTGRES_PASSWORD:}
+
   jpa:
     open-in-view: false
     hibernate:
+      # Flyway owns the schema; Hibernate validates against it and never alters it.
       ddl-auto: validate
-  flyway:
-    enabled: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
+
+# The WatchConfig gRPC server (§4.1.12). Authorised at the transport by mTLS (§7.2).
+grpc:
+  server:
+    enabled: ${CONFIG_GRPC_ENABLED:true}
+    port: ${CONFIG_GRPC_PORT:9091}
 
 server:
   port: 8091

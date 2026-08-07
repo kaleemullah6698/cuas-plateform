@@ -156,11 +156,10 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M7 complete (M7.A contracts + M7.B threat-assessment + M7.C alert-service + M7.D
-notification-service).** 18 modules, 821 tests, 0 failures (767 green at M7.C + 54 for
-notification-service; the full reactor compiles and packages clean). Infrastructure verified live
-(`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what each milestone delivered and
-which defects it found.
+**M0–M7 complete; M8 in progress (M8.A contracts + M8.B config-service done).** 848 tests, 0
+failures (821 at M7 + 27 for config-service; the full reactor compiles and packages clean).
+Infrastructure verified live (`scripts/verify-infra.sh`: 33 passed). See `docs/ROADMAP.md` for what
+each milestone delivered and which defects it found.
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as
@@ -168,10 +167,22 @@ which defects it found.
 > `-Dbuf.skip=true` when `buf` is not on `PATH`.
 
 Built: `contracts` (§5.3, §5.3.1–§5.3.5, §6.2, audit, user, gateway, ingestion, track +
-`TrackService`, threat, alert, notification), `platform-commons`, `audit-service`, `user-service`,
-`auth-service`, `api-gateway`, `sensor-ingestion`, `sensor-simulator`, `track-correlation`,
-`ai-orchestrator`, `threat-assessment`, `alert-service`, `notification-service`. The remaining two
-services (`reporting-service`, `config-service`) are still scaffold.
+`TrackService`, threat, alert, notification, **config + report (M8.A)**), `platform-commons`,
+`audit-service`, `user-service`, `auth-service`, `api-gateway`, `sensor-ingestion`,
+`sensor-simulator`, `track-correlation`, `ai-orchestrator`, `threat-assessment`, `alert-service`,
+`notification-service`, **`config-service` (M8.B)**. The remaining service (`reporting-service`) is
+still scaffold; the observability/IaC stack and the §7 hardening pass remain (M8.C/D).
+
+**M8 in progress — config, reporting, observability, hardening.** M8.A ✅ (config.proto +
+report.proto + §5.2 catalogue amendments — 37 primary topics). M8.B ✅ config-service (27 tests):
+namespaced runtime configuration with a full version history and before/after change-log audit
+(written in the same transaction as the change — fail-closed), rollback, and change propagation over
+the gRPC `WatchConfig` server stream (§4.1.12's authoritative, DB-backed push) plus the compact
+`platform.config.*` topics. Writes are gated per namespace kind by §7.4 permissions
+(`policy:write`/`sensor:configure`/`ai:configure`/`config:write`); reads on `policy:read` — the same
+"use only matrix permissions, flag the gap" decision notification-service made. Remaining: **M8.C**
+reporting-service (reportdb + Elasticsearch indexing + async report jobs), **M8.D** observability
+stack (Prometheus/Grafana/Loki/Tempo + the four §8.6 dashboards) and the §7 hardening pass.
 
 **M6 complete** (`ai-orchestrator` + the mock provider). The AI boundary runs end to end with zero
 trained models: modality routing, per-service timeout/breaker/bulkhead, content-addressed cache,
