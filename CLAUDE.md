@@ -156,9 +156,9 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M9 complete; M10 in progress (M10.A shell + M10.B auth/RBAC done).** Backend: full `mvn clean
-verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend (`frontend/`, its own
-npm build): **26 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean.
+**M0–M9 complete; M10 in progress (M10.A shell + M10.B auth/RBAC + M10.C dashboard done).** Backend:
+full `mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
+(`frontend/`, its own npm build): **30 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean.
 Infra verified live (`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and
 `docs/SECURITY-REVIEW.md` for §7.
 

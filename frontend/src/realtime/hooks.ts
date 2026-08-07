@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import type { AlertStore } from './AlertStore';
 import type { ConnectionState, ConnectionStore } from './ConnectionStore';
-import type { AlertView, TrackView } from './protocol';
+import type { AlertView, SensorView, TrackView } from './protocol';
+import type { SensorStore } from './SensorStore';
 import type { TrackStore } from './TrackStore';
 
 /**
@@ -14,6 +15,10 @@ export function useTracks(store: TrackStore): readonly TrackView[] {
 }
 
 export function useAlerts(store: AlertStore): readonly AlertView[] {
+  return useSyncExternalStore(store.subscribe, store.getSnapshot);
+}
+
+export function useSensors(store: SensorStore): readonly SensorView[] {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 

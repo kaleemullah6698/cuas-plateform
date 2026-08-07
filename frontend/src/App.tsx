@@ -1,7 +1,6 @@
 import {
   Bell,
   FileText,
-  LayoutDashboard,
   Map,
   Radar,
   ScrollText,
@@ -15,6 +14,7 @@ import { AppShell } from '@/app/AppShell';
 import { RealtimeProvider } from '@/app/RealtimeContext';
 import { SessionManager } from '@/auth/SessionManager';
 import { RequirePermission } from '@/auth/permissions';
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { ModulePlaceholder } from '@/pages/ModulePlaceholder';
@@ -35,9 +35,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route element={<AppShell />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={guard(null,
-                <ModulePlaceholder title="Operations Dashboard" icon={LayoutDashboard} milestone="M10.C"
-                  description="The command-centre overview — live threat picture, sensor coverage, and activity." />)} />
+              <Route path="/dashboard" element={guard(null, <DashboardPage />)} />
               <Route path="/map" element={guard('map:read',
                 <ModulePlaceholder title="Live Airspace Map" icon={Map} milestone="M10.D"
                   description="Tracks, sensors, protected zones, alerts and predicted drone paths on a live map." />)} />

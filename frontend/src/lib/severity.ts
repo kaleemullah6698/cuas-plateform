@@ -32,6 +32,24 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   unknown: 'UNKNOWN',
 };
 
+/** The compact label (add-frontend-feature skill: threat carries colour + shape + label). */
+export const SEVERITY_SHORT: Record<Severity, string> = {
+  critical: 'CRIT',
+  high: 'HIGH',
+  medium: 'MED',
+  low: 'LOW',
+  unknown: 'UNK',
+};
+
+/** The redundant shape channel, so threat reads without colour (colour-blind operators, §2.1.7). */
+export const SEVERITY_SHAPE: Record<Severity, string> = {
+  critical: '▲',
+  high: '◆',
+  medium: '■',
+  low: '●',
+  unknown: '○',
+};
+
 /** The CSS-variable colour for a severity, for canvas/map rendering where a class won't reach. */
 export const SEVERITY_COLOR: Record<Severity, string> = {
   critical: 'var(--color-critical)',

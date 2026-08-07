@@ -2,6 +2,7 @@ import { config } from '@/config';
 import { AlertStore } from './AlertStore';
 import { ConnectionStore } from './ConnectionStore';
 import type { Channel } from './protocol';
+import { SensorStore } from './SensorStore';
 import { TrackStore } from './TrackStore';
 import { WebSocketClient, type WebSocketClientOptions } from './WebSocketClient';
 
@@ -16,6 +17,7 @@ const DEFAULT_CHANNELS: Channel[] = ['tracks', 'alerts', 'sensors'];
 export class Realtime {
   readonly tracks = new TrackStore();
   readonly alerts = new AlertStore();
+  readonly sensors = new SensorStore();
   readonly connection = new ConnectionStore();
   private readonly client: WebSocketClient;
 
@@ -32,8 +34,14 @@ export class Realtime {
           this.tracks.applyDelta(changed, removed);
           this.connection.touch(Date.now());
         },
-        onSensorsSnapshot: () => {},
-        onSensorsDelta: () => {},
+        onSensorsSnapshot: (sensors) => {
+          this.sensors.replaceAll(sensors);
+          this.connection.touch(Date.now());
+        },
+        onSensorsDelta: (changed) => {
+          this.sensors.applyDelta(changed);
+          this.connection.touch(Date.now());
+        },
         onAlert: (alert) => {
           this.alerts.add(alert);
           this.connection.touch(Date.now());
