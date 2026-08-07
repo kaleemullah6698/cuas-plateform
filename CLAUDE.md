@@ -156,10 +156,11 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M8 complete; M9 in progress (M9.A gateway WebSocket fan-out done).** 885 tests, 0 failures (871
-at M8 + 14 for the gateway WS core). Infrastructure verified live (`scripts/verify-infra.sh`: 33
-passed). M8 was built **lean** (reporting ES pipeline deferred behind a port; observability as IaC).
-See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for the §7 hardening pass.
+**M0–M8 complete; M9 in progress (M9.A gateway WS + M9.B frontend realtime core done).** Backend:
+885 tests, 0 failures (871 at M8 + 14 for the gateway WS core). Frontend (`frontend/`, its own npm
+build — `npm install` done, lockfile committed): 12 Vitest tests, `tsc --noEmit` clean. Infra verified
+live (`scripts/verify-infra.sh`: 33). M8 was **lean** (reporting ES pipeline deferred behind a port;
+observability as IaC). See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for §7.
 
 **M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway
 WebSocket fan-out (14 tests). The gateway now consumes `track.*`/`alert.raised`/`sensor.health` and
@@ -170,8 +171,15 @@ per-channel authorisation (`alerts` needs `alert:read`), and the §7 five-connec
 **Two approved decisions (D-1, D-2):** the `SNAPSHOT` is built from the gateway's own in-memory track
 view — `track.state.snapshot.v1` has **no producer** and its production is deferred — and the session
 registry is in-memory (Redis-backed registry deferred). Both recorded in `docs/ARCHITECTURE.md` §3.5
-and the §5.2 footnote. Remaining: **M9.B** frontend realtime core, **M9.C** thin UI, **M9.D** E2E +
-docs.
+and the §5.2 footnote. **M9.B** ✅ frontend realtime core (12 Vitest tests): the performance-critical
+non-visual layer — `WebSocketClient` (token-on-upgrade, backoff+jitter reconnect, heartbeat-timeout,
+seq-gap→resnapshot, two-gaps→degraded), the `TrackStore` external store (Map + rAF-coalesced flush,
+ring-capped, `useSyncExternalStore` — track updates never pass through React state per message), the
+`AlertStore` (immediate, never coalesced), `ConnectionStore`, and the auth client/store (access token
+in memory only, §7.3). TS types mirror the gateway envelope exactly. **Frontend is a separate npm
+project** (`frontend/`), verified with `npm --prefix frontend test` / `typecheck` — it is NOT in the
+Maven reactor, so `mvn clean verify` does not cover it. Remaining: **M9.C** thin UI (login, track
+list, alert strip), **M9.D** E2E + compose wiring + docs.
 
 > **Building:** `java`, `mvn` and `buf` are not on `PATH` — they live in `../.toolchain/`. See the
 > toolchain note in `docs/DEVELOPMENT.md`, and never pipe `mvn` into `tail` (it masks failure as

@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite';
+/// <reference types="vitest/config" />
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
@@ -12,4 +13,11 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   server: { port: 3000 },
+  test: {
+    // Realtime-core tests (M9.B) are plain TypeScript; the component tests (M9.C)
+    // switch to jsdom per-file with a `// @vitest-environment jsdom` pragma.
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    clearMocks: true,
+  },
 });

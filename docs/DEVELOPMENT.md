@@ -111,7 +111,7 @@ documentation assumes.
 | `mvn test` (M8.C reporting-service) | ✅ Executed | reporting-service: **23 tests, 0 failures** (an async generate→render→store→download `@SpringBootTest` on Testcontainers PostgreSQL, incl. projection idempotency and a terminal-failure path; PDF/CSV/JSON renderer tests parsing the output; params/job/generator/registry/layering unit tests). PDFBox 2.0.31 added for PDF export |
 | `docker compose --profile observability config` (M8.D) | ✅ Executed | Prometheus/Grafana/Loki/Tempo stack validates; the four §8.6 dashboards are valid JSON. IaC only — no service code |
 | `mvn test` (M9.A gateway WebSocket) | ✅ Executed | api-gateway: **94 tests, 0 failures** (14 new: a `StandardWebSocketClient` `@SpringBootTest` covering handshake auth, subscribe→snapshot, coalesced delta, immediate alert, heartbeat, resnapshot and per-channel authz, plus hub/registry/mapper units). Added `spring-boot-starter-websocket` + a `latest`-offset fan-out consumer |
-| `npm ci` (frontend) | ⬜ Not yet | Frontend build/test begins with M9.B (Node 22 present; lockfile to be generated) |
+| `npm install` + `npm test` + `tsc --noEmit` (M9.B frontend core) | ✅ Executed | `frontend/`: **12 Vitest tests, 0 failures**, typecheck clean. Installed 321 packages and committed `package-lock.json` (Node 22.20 / npm 10.9). Covers the `TrackStore` coalescing, the `WebSocketClient` seq-gap→resnapshot / degraded / heartbeat-reconnect logic, and the auth client. **Separate build system** — run frontend checks with `npm --prefix frontend test`; `mvn clean verify` does not cover the frontend |
 
 ### Testcontainers on Docker Engine 29
 

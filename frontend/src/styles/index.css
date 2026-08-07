@@ -1,8 +1,33 @@
-/*
- * ARCHITECTURE.md section 2.1 defines the design language: colour system,
- * typography scale, 8-point spacing, radius scale, and elevation.
- *
- * Design tokens belong in src/design-system/tokens/ as CSS custom properties,
- * consumed by Tailwind. Scaffold only — no tokens defined yet.
- */
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/* The design system (§2.1) is deliberately not built in M9 — this is a thin verification console.
+   A small set of tokens keeps the login, track list and alert strip legible in the operator's dark
+   environment without pulling in the full token set. */
+:root {
+  --bg: #0b0f14;
+  --panel: #131a22;
+  --border: #223040;
+  --text: #e6edf3;
+  --text-dim: #93a1b0;
+  --accent: #3b82f6;
+  --threat-critical: #ef4444;
+  --threat-high: #f59e0b;
+  --threat-medium: #eab308;
+  --threat-low: #22c55e;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --down: #ef4444;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
