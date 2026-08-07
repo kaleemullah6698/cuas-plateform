@@ -95,6 +95,11 @@ export class WebSocketClient {
     this.open();
   }
 
+  /** Updates the access token used for future (re)connections, after a silent refresh (§7.3). */
+  updateToken(token: string): void {
+    this.token = token;
+  }
+
   /** Closes the connection for good — no reconnect. */
   disconnect(): void {
     this.stopped = true;

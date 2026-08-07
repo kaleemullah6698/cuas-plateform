@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { AppShell } from '@/app/AppShell';
 import { RealtimeProvider } from '@/app/RealtimeContext';
 import { useAuthStore } from '@/auth/authStore';
+import { makeJwt } from '@/test/makeJwt';
 import { testRealtime } from '@/test/testRealtime';
 
 function renderShell(initialEntry = '/dashboard') {
@@ -30,15 +31,19 @@ describe('AppShell', () => {
     expect(screen.getByText('LOGIN')).toBeInTheDocument();
   });
 
-  it('renders the command-centre chrome and an accessible nav for an authenticated operator', () => {
-    useAuthStore.getState().setSession('jwt', 'sess');
+  it('renders the command-centre chrome and a permission-gated accessible nav', () => {
+    useAuthStore.getState().setSession(
+      makeJwt({ sub: 'u', name: 'Op', perms: ['map:read', 'alert:read'] }),
+      'sess',
+    );
     renderShell();
 
     expect(screen.getByText('DASHBOARD')).toBeInTheDocument();
     expect(screen.getByText('C-UAS Command')).toBeInTheDocument();
-    // Icon-only nav links carry accessible names.
+    // Icon-only nav links carry accessible names, and only permitted sections appear.
     expect(screen.getByRole('link', { name: 'Live Map' })).toHaveAttribute('href', '/map');
     expect(screen.getByRole('link', { name: 'Alerts' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Audit' })).not.toBeInTheDocument(); // no audit:read
     expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
   });
 });

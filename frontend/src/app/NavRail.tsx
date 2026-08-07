@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { usePermissions } from '@/auth/permissions';
 import { cn } from '@/lib/cn';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/design-system';
 import { NAV_SECTIONS } from './navigation';
@@ -9,12 +10,16 @@ import { NAV_SECTIONS } from './navigation';
  * carries a tooltip so the rail stays narrow without becoming a guessing game.
  */
 export function NavRail() {
+  const perms = usePermissions();
+  const sections = NAV_SECTIONS.filter(
+    (section) => section.permission === null || perms.includes(section.permission),
+  );
   return (
     <nav
       aria-label="Primary"
       className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-2"
     >
-      {NAV_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <Tooltip key={section.to} delayDuration={300}>
           <TooltipTrigger asChild>
             <NavLink

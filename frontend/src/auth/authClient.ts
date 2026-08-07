@@ -31,6 +31,24 @@ export async function verifyMfa(challengeId: string, code: string): Promise<Logi
   return authenticated(await post('/api/v1/auth/mfa/verify', { challengeId, code }));
 }
 
+/**
+ * Rotates the token pair using the HttpOnly refresh cookie (§7.3). Used to restore a session on load
+ * and to refresh silently before the 15-minute access token expires. Throws {@link AuthError} when the
+ * cookie is absent or the family has been revoked.
+ */
+export async function refresh(): Promise<LoginResult> {
+  return authenticated(await post('/api/v1/auth/refresh', {}));
+}
+
+/** Ends the session server-side (revokes the refresh family). Best-effort — the client clears regardless. */
+export async function logout(): Promise<void> {
+  try {
+    await post('/api/v1/auth/logout', {});
+  } catch {
+    // The local session is cleared by the caller whether or not the server call succeeds.
+  }
+}
+
 function authenticated(body: Record<string, unknown>): LoginResult {
   return {
     kind: 'authenticated',

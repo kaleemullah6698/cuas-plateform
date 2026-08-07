@@ -48,6 +48,10 @@ export class Realtime {
     this.client.connect(token);
   }
 
+  updateToken(token: string): void {
+    this.client.updateToken(token);
+  }
+
   disconnect(): void {
     this.client.disconnect();
   }
