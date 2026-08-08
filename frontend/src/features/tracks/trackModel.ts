@@ -1,4 +1,4 @@
-import { type Severity, SEVERITY_ORDER } from '@/lib/severity';
+import { type Severity, severityRank } from '@/lib/severity';
 import type { TrackView } from '@/realtime/protocol';
 
 /**
@@ -8,11 +8,7 @@ import type { TrackView } from '@/realtime/protocol';
  * always at the top of the queue (§2.4.2 "rows sort by threat descending by default").
  */
 
-/** Numeric rank so severities compare and threshold-filter; higher is more dangerous. */
-export function severityRank(severity: Severity): number {
-  // SEVERITY_ORDER is worst-first; invert the index so critical is the largest rank.
-  return SEVERITY_ORDER.length - 1 - SEVERITY_ORDER.indexOf(severity);
-}
+export { severityRank };
 
 export function severityOfTrack(trackId: string, severity: Map<string, Severity>): Severity {
   return severity.get(trackId) ?? 'unknown';

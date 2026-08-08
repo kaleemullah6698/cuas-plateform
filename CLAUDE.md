@@ -156,10 +156,10 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M9 complete; M10 in progress (A shell + B auth/RBAC + C dashboard + D map + E track console done).**
+**M0–M9 complete; M10 in progress (A shell + B auth/RBAC + C dashboard + D map + E tracks + F alerts/incidents done).**
 Backend: full `mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
-(`frontend/`, its own npm build): **57 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean
-(map route code-split so MapLibre loads on demand — initial bundle 170 KB gzip). Infra verified live
+(`frontend/`, its own npm build): **64 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean
+(map route code-split so MapLibre loads on demand — initial bundle 174 KB gzip). Infra verified live
 (`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md`
 for §7.
 
@@ -182,8 +182,13 @@ Esc keyboard, threat-floor + text filter) master-detail with a live track-detail
 detail (history, sensor contributions, AI/score, prediction) built + typed against the real `/tracks`
 DTOs but gated behind `TRACKS_REST_ROUTED` (Option A — G-4 covers `/tracks` too; awaiting state, no
 fabrication); introduced **server state** (TanStack Query + one `QueryClient`) and lifted
-`severityByTrack` to `src/lib/`; **F** alerts/incidents workflow;
-**G** reports/config/users/audit/notifications. **Two items are M11, not M10:** the gateway routes for
+`severityByTrack` to `src/lib/`; **F** ✅ Alert Center + Incident Investigation (Screens 7–8/§2.4.3):
+a three-bucket alert queue filled **live today** from the WS raised feed (open-source-track works now),
+with ack/assign/resolve + the whole incident screen (tabbed timeline/notes/evidence/decision-chain,
+declare/close/note mutations) built + typed against alert-service DTOs but gated behind
+`ALERTS_REST_ROUTED`/`INCIDENTS_REST_ROUTED` (G-4 — awaiting state, no fabrication); the decision
+chain renders engagement `NONE — outside system scope` structurally; **G** reports/config/users/audit/notifications.
+**Two items are M11, not M10:** the gateway routes for
 the bare-path services (alert/config/report/notification/**tracks** — M9 finding G-4) and self-hosted map tiles.
 
 **M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway

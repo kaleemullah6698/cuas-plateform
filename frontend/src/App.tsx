@@ -1,4 +1,4 @@
-import { Bell, FileText, ScrollText, ShieldAlert, SlidersHorizontal, Users } from 'lucide-react';
+import { FileText, ScrollText, SlidersHorizontal, Users } from 'lucide-react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { lazy, type ReactElement, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -10,6 +10,8 @@ import { RequirePermission } from '@/auth/permissions';
 import { Spinner } from '@/design-system';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { TracksPage } from '@/features/tracks/TracksPage';
+import { AlertCenterPage } from '@/features/alerts/AlertCenterPage';
+import { IncidentsPage } from '@/features/incidents/IncidentsPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { ModulePlaceholder } from '@/pages/ModulePlaceholder';
@@ -41,12 +43,8 @@ export default function App() {
               <Route path="/dashboard" element={guard(null, <DashboardPage />)} />
               <Route path="/map" element={guard('map:read', <LazyRoute><MapPage /></LazyRoute>)} />
               <Route path="/tracks" element={guard('track:read', <TracksPage />)} />
-              <Route path="/alerts" element={guard('alert:read',
-                <ModulePlaceholder title="Alert Center" icon={Bell} milestone="M10.F"
-                  description="The operator alert queue and the acknowledge → assign → resolve workflow." />)} />
-              <Route path="/incidents" element={guard('incident:read',
-                <ModulePlaceholder title="Incidents" icon={ShieldAlert} milestone="M10.F"
-                  description="Operator-declared investigations with timelines, notes and evidence bundles." />)} />
+              <Route path="/alerts" element={guard('alert:read', <AlertCenterPage />)} />
+              <Route path="/incidents" element={guard('incident:read', <IncidentsPage />)} />
               <Route path="/reports" element={guard('report:read',
                 <ModulePlaceholder title="Reports" icon={FileText} milestone="M10.G"
                   description="Generate and download incident, summary, sensor and fusion reports (PDF/JSON/CSV)." />)} />

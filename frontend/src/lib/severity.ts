@@ -7,6 +7,11 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'unknown';
 
 export const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low', 'unknown'];
 
+/** Numeric rank so severities compare and threshold-filter; higher is more dangerous (critical = 4). */
+export function severityRank(severity: Severity): number {
+  return SEVERITY_ORDER.length - 1 - SEVERITY_ORDER.indexOf(severity);
+}
+
 export function severityOf(raw: string | null | undefined): Severity {
   const value = (raw ?? '').toUpperCase();
   if (value.includes('CRITICAL')) return 'critical';

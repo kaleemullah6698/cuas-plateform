@@ -5,6 +5,8 @@ interface AuthState {
   accessToken: string | null;
   sessionId: string | null;
   isAuthenticated: boolean;
+  /** The token subject — the operator's user id (for attributing actions like "assign to me"). */
+  subject: string | null;
   /** Operator display name, from the token's `name` claim (falls back to the subject). */
   displayName: string;
   /** The §7.4 roles the token carries. */
@@ -22,6 +24,7 @@ const ANONYMOUS = {
   accessToken: null,
   sessionId: null,
   isAuthenticated: false,
+  subject: null,
   displayName: 'Operator',
   roles: [] as string[],
   perms: [] as string[],
@@ -44,6 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken,
       sessionId,
       isAuthenticated: true,
+      subject: claims?.sub ?? null,
       displayName: claims?.name ?? claims?.sub ?? 'Operator',
       roles: claims?.roles ?? [],
       perms: claims?.perms ?? [],
