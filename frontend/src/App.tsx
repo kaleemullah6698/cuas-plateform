@@ -1,20 +1,15 @@
-import {
-  Bell,
-  FileText,
-  Radar,
-  ScrollText,
-  ShieldAlert,
-  SlidersHorizontal,
-  Users,
-} from 'lucide-react';
+import { Bell, FileText, ScrollText, ShieldAlert, SlidersHorizontal, Users } from 'lucide-react';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { lazy, type ReactElement, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/app/AppShell';
+import { queryClient } from '@/app/queryClient';
 import { RealtimeProvider } from '@/app/RealtimeContext';
 import { SessionManager } from '@/auth/SessionManager';
 import { RequirePermission } from '@/auth/permissions';
 import { Spinner } from '@/design-system';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { TracksPage } from '@/features/tracks/TracksPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { ModulePlaceholder } from '@/pages/ModulePlaceholder';
@@ -35,8 +30,9 @@ const MapPage = lazy(() =>
  */
 export default function App() {
   return (
-    <RealtimeProvider>
-      <SessionManager>
+    <QueryClientProvider client={queryClient}>
+      <RealtimeProvider>
+        <SessionManager>
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
@@ -44,9 +40,7 @@ export default function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={guard(null, <DashboardPage />)} />
               <Route path="/map" element={guard('map:read', <LazyRoute><MapPage /></LazyRoute>)} />
-              <Route path="/tracks" element={guard('track:read',
-                <ModulePlaceholder title="Track Console" icon={Radar} milestone="M10.E"
-                  description="The live track list and full track detail — classification, telemetry, prediction." />)} />
+              <Route path="/tracks" element={guard('track:read', <TracksPage />)} />
               <Route path="/alerts" element={guard('alert:read',
                 <ModulePlaceholder title="Alert Center" icon={Bell} milestone="M10.F"
                   description="The operator alert queue and the acknowledge → assign → resolve workflow." />)} />
@@ -70,8 +64,9 @@ export default function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
-      </SessionManager>
-    </RealtimeProvider>
+        </SessionManager>
+      </RealtimeProvider>
+    </QueryClientProvider>
   );
 }
 

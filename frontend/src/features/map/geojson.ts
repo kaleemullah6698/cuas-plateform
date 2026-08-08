@@ -1,24 +1,9 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
-import { type Severity, severityOf, worst } from '@/lib/severity';
-import type { AlertView, TrackView } from '@/realtime/protocol';
+import type { Severity } from '@/lib/severity';
+import { severityByTrack } from '@/lib/trackSeverity';
+import type { TrackView } from '@/realtime/protocol';
 
-/** Worst active severity per track, derived from the live alert stream (a track has no threat of its own). */
-export function severityByTrack(alerts: readonly AlertView[]): Map<string, Severity> {
-  const grouped = new Map<string, Severity[]>();
-  for (const alert of alerts) {
-    if (!alert.trackId) {
-      continue;
-    }
-    const list = grouped.get(alert.trackId) ?? [];
-    list.push(severityOf(alert.severity));
-    grouped.set(alert.trackId, list);
-  }
-  const result = new Map<string, Severity>();
-  for (const [trackId, severities] of grouped) {
-    result.set(trackId, worst(severities));
-  }
-  return result;
-}
+export { severityByTrack };
 
 export interface TrackFeatureProps {
   trackId: string;

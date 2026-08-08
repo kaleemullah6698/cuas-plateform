@@ -5,7 +5,7 @@ import { useConnection } from '@/realtime/hooks';
 /**
  * The connection-lost banner (ARCHITECTURE.md §2.5.2). When the stream is not live the console must not
  * present stale data as current: a full-width amber banner names the age of the last data and the
- * track glyphs desaturate (done by {@link TrackConsole}). A degraded connection — two seq gaps in the
+ * track glyphs desaturate (the track console dims when not live). A degraded connection — two seq gaps in the
  * window — shows a quieter notice.
  */
 export function ConnectionBanner() {

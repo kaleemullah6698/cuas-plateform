@@ -156,10 +156,10 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M9 complete; M10 in progress (M10.A shell + M10.B auth/RBAC + M10.C dashboard + M10.D map done).**
+**M0–M9 complete; M10 in progress (A shell + B auth/RBAC + C dashboard + D map + E track console done).**
 Backend: full `mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
-(`frontend/`, its own npm build): **45 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean
-(map route code-split so MapLibre loads on demand — initial bundle 155 KB gzip). Infra verified live
+(`frontend/`, its own npm build): **57 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean
+(map route code-split so MapLibre loads on demand — initial bundle 170 KB gzip). Infra verified live
 (`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md`
 for §7.
 
@@ -176,9 +176,15 @@ budget, code-split), live tracks styled by alert-derived severity (colour + shap
 vectors, client-accumulated capped/evicted trails, crit/high never clustered (§2.5.4), shared
 selection via `src/store/`, command-centre glass overlays; a **layered registry** where zones/sensors/
 prediction/offline-tiles are built but disabled-until-M11 (Option A — no fabricated data; M11 flips a
-flag, not a rewrite); **E** track detail; **F** alerts/incidents workflow;
+flag, not a rewrite); **E** ✅ track console — Screen 4/§2.4.2: a threat-sorted triage queue (J/K/Enter/
+Esc keyboard, threat-floor + text filter) master-detail with a live track-detail panel (identity, class
++ confidence, telemetry, client-accumulated velocity/altitude session sparklines); server-authoritative
+detail (history, sensor contributions, AI/score, prediction) built + typed against the real `/tracks`
+DTOs but gated behind `TRACKS_REST_ROUTED` (Option A — G-4 covers `/tracks` too; awaiting state, no
+fabrication); introduced **server state** (TanStack Query + one `QueryClient`) and lifted
+`severityByTrack` to `src/lib/`; **F** alerts/incidents workflow;
 **G** reports/config/users/audit/notifications. **Two items are M11, not M10:** the gateway routes for
-the bare-path services (alert/config/report/notification — M9 finding G-4) and self-hosted map tiles.
+the bare-path services (alert/config/report/notification/**tracks** — M9 finding G-4) and self-hosted map tiles.
 
 **M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway
 WebSocket fan-out (14 tests). The gateway now consumes `track.*`/`alert.raised`/`sensor.health` and
