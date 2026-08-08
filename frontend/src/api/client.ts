@@ -85,7 +85,9 @@ export const api = {
   post: <T>(path: string, body?: unknown) => json<T>(path, withBody('POST', body ?? {})),
   put: <T>(path: string, body: unknown) => json<T>(path, withBody('PUT', body)),
   patch: <T>(path: string, body: unknown) => json<T>(path, withBody('PATCH', body)),
-  del: <T>(path: string) => json<T>(path, { method: 'DELETE' }),
+  // DELETE optionally carries a body — a role revocation is a DELETE with its justification (§4.1.3).
+  del: <T>(path: string, body?: unknown) =>
+    json<T>(path, body === undefined ? { method: 'DELETE' } : withBody('DELETE', body)),
   /** Raw response, for downloads (a report artifact) where the body is not JSON. */
   raw: (path: string, init: RequestInit = {}) => request(path, init, true),
 };

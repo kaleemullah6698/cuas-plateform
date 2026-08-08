@@ -156,12 +156,11 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M9 complete; M10 in progress (A shell + B auth/RBAC + C dashboard + D map + E tracks + F alerts/incidents done).**
-Backend: full `mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
-(`frontend/`, its own npm build): **64 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean
-(map route code-split so MapLibre loads on demand — initial bundle 174 KB gzip). Infra verified live
-(`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md`
-for §7.
+**M0–M10 complete; M11 next (runtime deployment & full integration).** Backend: full `mvn clean verify`
+green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend (`frontend/`, its own npm build):
+**69 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean (map route code-split so MapLibre loads
+on demand — initial bundle 179 KB gzip). Infra verified live (`scripts/verify-infra.sh`: 33). See
+`docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for §7.
 
 **Roadmap amended (owner's direction): M10 professional operator console → M11 runtime deployment &
 full integration → M12 production readiness** (defined in `docs/ROADMAP.md` Phase 5). M10 builds the
@@ -187,9 +186,18 @@ a three-bucket alert queue filled **live today** from the WS raised feed (open-s
 with ack/assign/resolve + the whole incident screen (tabbed timeline/notes/evidence/decision-chain,
 declare/close/note mutations) built + typed against alert-service DTOs but gated behind
 `ALERTS_REST_ROUTED`/`INCIDENTS_REST_ROUTED` (G-4 — awaiting state, no fabrication); the decision
-chain renders engagement `NONE — outside system scope` structurally; **G** reports/config/users/audit/notifications.
-**Two items are M11, not M10:** the gateway routes for
-the bare-path services (alert/config/report/notification/**tracks** — M9 finding G-4) and self-hosted map tiles.
+chain renders engagement `NONE — outside system scope` structurally; **G** ✅ the five admin screens
+(§Screens 9–12): **User Management** and the **Audit Viewer** are **live today** (user-service and
+audit-service are gateway-routed) — accounts/roles/permissions with server-enforced self-escalation +
+separation-of-duty refusals surfaced in the UI, and audit query + hash-chain verify with the broken-chain
+full-width critical banner; **Reports**, **Configuration** and the **Notification Centre** are built +
+typed against their real contracts but gated behind per-service routing flags (bare-path — G-4). The
+`ModulePlaceholder` scaffold is retired; every nav destination is a real screen.
+**M10 is complete** — the full §2 console on the real contracts, live where data is available and
+gated-with-awaiting-state where a service is not yet routed; no fabricated data. **Two classes of item
+are M11, not M10:** the gateway routes for the bare-path services (alert/incident/track/config/report/
+notification REST — M9 finding G-4) and deferred enrichments (protected zones, sensor positions,
+predicted trajectories, self-hosted map tiles) — M11 is data-integration (wire routes, flip flags), not a rewrite.
 
 **M9 — real-time edge & thin frontend verification** (approved plan, grouped A→D): **M9.A** ✅ gateway
 WebSocket fan-out (14 tests). The gateway now consumes `track.*`/`alert.raised`/`sensor.health` and

@@ -1,6 +1,7 @@
 import {
   type LucideIcon,
   Bell,
+  BellRing,
   FileText,
   LayoutDashboard,
   Map,
@@ -34,4 +35,5 @@ export const NAV_SECTIONS: NavSection[] = [
   { to: '/config', label: 'Configuration', icon: SlidersHorizontal, permission: 'policy:read' },
   { to: '/users', label: 'User Management', icon: Users, permission: 'user:read' },
   { to: '/audit', label: 'Audit', icon: ScrollText, permission: 'audit:read' },
+  { to: '/notifications', label: 'Notifications', icon: BellRing, permission: null },
 ];

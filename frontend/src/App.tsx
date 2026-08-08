@@ -1,4 +1,3 @@
-import { FileText, ScrollText, SlidersHorizontal, Users } from 'lucide-react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { lazy, type ReactElement, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -12,9 +11,13 @@ import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { TracksPage } from '@/features/tracks/TracksPage';
 import { AlertCenterPage } from '@/features/alerts/AlertCenterPage';
 import { IncidentsPage } from '@/features/incidents/IncidentsPage';
+import { ReportsPage } from '@/features/reports/ReportsPage';
+import { ConfigPage } from '@/features/config/ConfigPage';
+import { UsersPage } from '@/features/users/UsersPage';
+import { AuditPage } from '@/features/audit/AuditPage';
+import { NotificationCenterPage } from '@/features/notifications/NotificationCenterPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
-import { ModulePlaceholder } from '@/pages/ModulePlaceholder';
 
 // MapLibre GL is ~200 KB gzip — far larger than the rest of the console. The map route is code-split
 // so that weight loads only when an operator opens the map, keeping the initial bundle within the §3.6
@@ -45,18 +48,11 @@ export default function App() {
               <Route path="/tracks" element={guard('track:read', <TracksPage />)} />
               <Route path="/alerts" element={guard('alert:read', <AlertCenterPage />)} />
               <Route path="/incidents" element={guard('incident:read', <IncidentsPage />)} />
-              <Route path="/reports" element={guard('report:read',
-                <ModulePlaceholder title="Reports" icon={FileText} milestone="M10.G"
-                  description="Generate and download incident, summary, sensor and fusion reports (PDF/JSON/CSV)." />)} />
-              <Route path="/config" element={guard('policy:read',
-                <ModulePlaceholder title="Configuration" icon={SlidersHorizontal} milestone="M10.G"
-                  description="Runtime configuration namespaces with version history and rollback." />)} />
-              <Route path="/users" element={guard('user:read',
-                <ModulePlaceholder title="User Management" icon={Users} milestone="M10.G"
-                  description="Operators, roles and permissions." />)} />
-              <Route path="/audit" element={guard('audit:read',
-                <ModulePlaceholder title="Audit" icon={ScrollText} milestone="M10.G"
-                  description="The tamper-evident audit log and chain verification." />)} />
+              <Route path="/reports" element={guard('report:read', <ReportsPage />)} />
+              <Route path="/config" element={guard('policy:read', <ConfigPage />)} />
+              <Route path="/users" element={guard('user:read', <UsersPage />)} />
+              <Route path="/audit" element={guard('audit:read', <AuditPage />)} />
+              <Route path="/notifications" element={guard(null, <NotificationCenterPage />)} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
