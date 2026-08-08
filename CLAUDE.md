@@ -156,11 +156,12 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M9 complete; M10 in progress (M10.A shell + M10.B auth/RBAC + M10.C dashboard done).** Backend:
-full `mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
-(`frontend/`, its own npm build): **30 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean.
-Infra verified live (`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and
-`docs/SECURITY-REVIEW.md` for §7.
+**M0–M9 complete; M10 in progress (M10.A shell + M10.B auth/RBAC + M10.C dashboard + M10.D map done).**
+Backend: full `mvn clean verify` green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend
+(`frontend/`, its own npm build): **45 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean
+(map route code-split so MapLibre loads on demand — initial bundle 155 KB gzip). Infra verified live
+(`scripts/verify-infra.sh`: 33). See `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md`
+for §7.
 
 **Roadmap amended (owner's direction): M10 professional operator console → M11 runtime deployment &
 full integration → M12 production readiness** (defined in `docs/ROADMAP.md` Phase 5). M10 builds the
@@ -170,7 +171,12 @@ command-center `AppShell`; **B** ✅ auth — a canonical `src/api/client.ts` (a
 + correlation id), JWT-decoded identity/permissions in the store, the rebuilt login (RHF+Zod, MFA
 step), `SessionManager` (bootstrap-restore from the refresh cookie + proactive silent refresh),
 profile page, and role-based UI (`Can`/`RequirePermission`, permission-gated nav + route guards);
-**C** dashboard; **D** MapLibre map; **E** track detail; **F** alerts/incidents workflow;
+**C** ✅ dashboard; **D** ✅ MapLibre map — imperative (outside React, `setData` at the §2.5.1 10 Hz
+budget, code-split), live tracks styled by alert-derived severity (colour + shape + label), heading
+vectors, client-accumulated capped/evicted trails, crit/high never clustered (§2.5.4), shared
+selection via `src/store/`, command-centre glass overlays; a **layered registry** where zones/sensors/
+prediction/offline-tiles are built but disabled-until-M11 (Option A — no fabricated data; M11 flips a
+flag, not a rewrite); **E** track detail; **F** alerts/incidents workflow;
 **G** reports/config/users/audit/notifications. **Two items are M11, not M10:** the gateway routes for
 the bare-path services (alert/config/report/notification — M9 finding G-4) and self-hosted map tiles.
 

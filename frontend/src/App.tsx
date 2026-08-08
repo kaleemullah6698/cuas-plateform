@@ -1,23 +1,30 @@
 import {
   Bell,
   FileText,
-  Map,
   Radar,
   ScrollText,
   ShieldAlert,
   SlidersHorizontal,
   Users,
 } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { lazy, type ReactElement, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/app/AppShell';
 import { RealtimeProvider } from '@/app/RealtimeContext';
 import { SessionManager } from '@/auth/SessionManager';
 import { RequirePermission } from '@/auth/permissions';
+import { Spinner } from '@/design-system';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { ModulePlaceholder } from '@/pages/ModulePlaceholder';
+
+// MapLibre GL is ~200 KB gzip — far larger than the rest of the console. The map route is code-split
+// so that weight loads only when an operator opens the map, keeping the initial bundle within the §3.6
+// budget the other screens respect.
+const MapPage = lazy(() =>
+  import('@/features/map/MapPage').then((module) => ({ default: module.MapPage })),
+);
 
 /**
  * The operator console route tree (ARCHITECTURE.md §3.6). Login is public; everything else lives
@@ -36,9 +43,7 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={guard(null, <DashboardPage />)} />
-              <Route path="/map" element={guard('map:read',
-                <ModulePlaceholder title="Live Airspace Map" icon={Map} milestone="M10.D"
-                  description="Tracks, sensors, protected zones, alerts and predicted drone paths on a live map." />)} />
+              <Route path="/map" element={guard('map:read', <LazyRoute><MapPage /></LazyRoute>)} />
               <Route path="/tracks" element={guard('track:read',
                 <ModulePlaceholder title="Track Console" icon={Radar} milestone="M10.E"
                   description="The live track list and full track detail — classification, telemetry, prediction." />)} />
@@ -72,4 +77,19 @@ export default function App() {
 
 function guard(permission: string | null, element: ReactElement): ReactElement {
   return <RequirePermission permission={permission}>{element}</RequirePermission>;
+}
+
+/** Suspense boundary for a code-split route, with a centred spinner while the chunk loads. */
+function LazyRoute({ children }: { children: ReactElement }): ReactElement {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid h-full place-items-center">
+          <Spinner />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
 }
