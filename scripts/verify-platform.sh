@@ -26,6 +26,25 @@ export MSYS2_ARG_CONV_EXCL='*'
 
 cd "$(dirname "$0")/.."
 
+# Read .env the way docker compose does. Without this the bootstrap password would have to be set
+# in two places — once in .env for the containers and again in the shell for this script — and the
+# failure when it is not is a 401 at step 4 that looks like a broken login rather than a missing
+# variable. Existing environment values win, so an explicit override still works.
+if [ -f .env ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|'#'*) continue ;;
+      *=*)
+        key="${line%%=*}"
+        # Only set it if the shell does not already define it.
+        if [ -z "$(eval "printf '%s' \"\${$key:-}\"")" ]; then
+          export "$key=${line#*=}"
+        fi
+        ;;
+    esac
+  done < .env
+fi
+
 GATEWAY="${GATEWAY_URL:-http://localhost:8080}"
 ADMIN_USER="${CUAS_BOOTSTRAP_ADMIN_USERNAME:-admin}"
 ADMIN_PASS="${CUAS_BOOTSTRAP_ADMIN_PASSWORD:-}"
