@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ai-orchestrator — ARCHITECTURE.md section 8.2
 #
 # Built from the repository root: the Maven reactor is backend/pom.xml, and the contracts module
@@ -19,7 +20,12 @@ RUN test -d contracts/generated/java/pk || ( \
       echo 'Run "buf generate" in contracts/ before building this image (see docs/DEVELOPMENT.md).' && \
       exit 1 )
 
-RUN mvn -B -f backend/pom.xml -pl ai-orchestrator -am package -DskipTests -Dbuf.skip=true
+# A BuildKit cache mount shared by all thirteen images. Without it each build downloads the whole
+# dependency tree from Maven Central independently — thirteen times over, and the first attempt at
+# this failed when one 6.7 MB artifact arrived truncated. sharing=locked serialises the first
+# populate so parallel builds cannot corrupt each other's downloads; the retry handler absorbs the
+# transient truncations that started this.
+RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -B -f backend/pom.xml -pl ai-orchestrator -am package -DskipTests -Dbuf.skip=true -Dmaven.wagon.http.retryHandler.count=3
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
 RUN addgroup -S cuas && adduser -S cuas -G cuas
