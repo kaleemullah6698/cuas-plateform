@@ -88,7 +88,7 @@ class ThreatControllerTest {
     void anAssessmentIsReadableWithTrackRead() throws Exception {
         when(threats.latest(TRACK)).thenReturn(assessment());
 
-        mvc.perform(get("/threats/{id}", TRACK).with(jwt().authorities(authority("track:read"))))
+        mvc.perform(get("/api/v1/threats/{id}", TRACK).with(jwt().authorities(authority("track:read"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackId").value(TRACK.toString()))
                 .andExpect(jsonPath("$.policyVersion").value("policy-v1"))
@@ -97,7 +97,7 @@ class ThreatControllerTest {
 
     @Test
     void readingAnAssessmentWithoutTrackReadIsForbidden() throws Exception {
-        mvc.perform(get("/threats/{id}", TRACK).with(jwt().authorities(authority("alert:read"))))
+        mvc.perform(get("/api/v1/threats/{id}", TRACK).with(jwt().authorities(authority("alert:read"))))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
@@ -105,7 +105,7 @@ class ThreatControllerTest {
     @Test
     void theForbiddenResponseDoesNotNameTheMissingPermission() throws Exception {
         // Naming it would let a caller map the authorisation model one request at a time.
-        mvc.perform(get("/threats/{id}", TRACK).with(jwt().authorities(authority("alert:read"))))
+        mvc.perform(get("/api/v1/threats/{id}", TRACK).with(jwt().authorities(authority("alert:read"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.detail").value(
                         "You do not have permission to perform this action."));
@@ -117,14 +117,14 @@ class ThreatControllerTest {
         // would tell an operator the system had judged a track harmless when it had not judged it.
         when(threats.latest(TRACK)).thenThrow(new AssessmentNotFoundException(TRACK));
 
-        mvc.perform(get("/threats/{id}", TRACK).with(jwt().authorities(authority("track:read"))))
+        mvc.perform(get("/api/v1/threats/{id}", TRACK).with(jwt().authorities(authority("track:read"))))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
     @Test
     void aMalformedTrackIdIsFourHundred() throws Exception {
-        mvc.perform(get("/threats/{id}", "not-a-uuid")
+        mvc.perform(get("/api/v1/threats/{id}", "not-a-uuid")
                         .with(jwt().authorities(authority("track:read"))))
                 .andExpect(status().isBadRequest());
     }
@@ -133,7 +133,7 @@ class ThreatControllerTest {
     void theBreakdownCarriesEveryFactorIncludingTheAbsentOnes() throws Exception {
         when(threats.latest(TRACK)).thenReturn(assessment());
 
-        mvc.perform(get("/threats/{id}/breakdown", TRACK)
+        mvc.perform(get("/api/v1/threats/{id}/breakdown", TRACK)
                         .with(jwt().authorities(authority("track:read"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.factors.length()").value(5))
@@ -152,7 +152,7 @@ class ThreatControllerTest {
     void policiesAreReadableWithPolicyRead() throws Exception {
         when(policies.versions()).thenReturn(List.of(policy()));
 
-        mvc.perform(get("/threats/policies").with(jwt().authorities(authority("policy:read"))))
+        mvc.perform(get("/api/v1/threats/policies").with(jwt().authorities(authority("policy:read"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].version").value("policy-v1"))
                 .andExpect(jsonPath("$[0].weights.MODEL_CONFIDENCE").value(0.40));
@@ -160,7 +160,7 @@ class ThreatControllerTest {
 
     @Test
     void readingPoliciesWithoutPolicyReadIsForbidden() throws Exception {
-        mvc.perform(get("/threats/policies").with(jwt().authorities(authority("track:read"))))
+        mvc.perform(get("/api/v1/threats/policies").with(jwt().authorities(authority("track:read"))))
                 .andExpect(status().isForbidden());
     }
 
@@ -168,7 +168,7 @@ class ThreatControllerTest {
     void publishingAPolicyRequiresPolicyWriteNotMerelyPolicyRead() throws Exception {
         // Section 7.4 grants policy:write to ADMIN alone, and rightly: republishing a policy changes
         // what the system concludes about every track in the airspace.
-        mvc.perform(put("/threats/policies")
+        mvc.perform(put("/api/v1/threats/policies")
                         .with(jwt().authorities(authority("policy:read")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(validPolicyRequest())))
@@ -181,7 +181,7 @@ class ThreatControllerTest {
     void publishingAPolicyWithPolicyWriteSucceedsAndCarriesTheJustification() throws Exception {
         when(policies.publish(any(), anyString(), anyString())).thenReturn(policy());
 
-        mvc.perform(put("/threats/policies")
+        mvc.perform(put("/api/v1/threats/policies")
                         .with(jwt().authorities(authority("policy:write")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(validPolicyRequest())))
@@ -198,7 +198,7 @@ class ThreatControllerTest {
                 "policy-v2", "  ", weightsMap(), 0.30, 0.55, 0.80,
                 200.0, 5000.0, 18.0, 4, 0.50, List.of(validRule()));
 
-        mvc.perform(put("/threats/policies")
+        mvc.perform(put("/api/v1/threats/policies")
                         .with(jwt().authorities(authority("policy:write")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(unjustified)))
@@ -213,7 +213,7 @@ class ThreatControllerTest {
                 "policy-v2", "Retuning", broken, 0.30, 0.55, 0.80,
                 200.0, 5000.0, 18.0, 4, 0.50, List.of(validRule()));
 
-        mvc.perform(put("/threats/policies")
+        mvc.perform(put("/api/v1/threats/policies")
                         .with(jwt().authorities(authority("policy:write")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(request)))
@@ -232,7 +232,7 @@ class ThreatControllerTest {
                 List.of(new PolicyUpdateRequest.RuleRequest("rogue", 10, "LOW", false, "ANY",
                         false, 0, "JAM_CONTROL_LINK", "")));
 
-        mvc.perform(put("/threats/policies")
+        mvc.perform(put("/api/v1/threats/policies")
                         .with(jwt().authorities(authority("policy:write")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(request)))
@@ -248,7 +248,7 @@ class ThreatControllerTest {
         when(policies.publish(any(), anyString(), anyString()))
                 .thenThrow(new AuditWriteException("audit log unreachable", null));
 
-        mvc.perform(put("/threats/policies")
+        mvc.perform(put("/api/v1/threats/policies")
                         .with(jwt().authorities(authority("policy:write")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(validPolicyRequest())))
@@ -268,7 +268,7 @@ class ThreatControllerTest {
         // to ask what one would do.
         when(policies.evaluate(any(), any())).thenReturn(assessment());
 
-        mvc.perform(post("/threats/evaluate")
+        mvc.perform(post("/api/v1/threats/evaluate")
                         .with(jwt().authorities(authority("policy:read")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(evaluateRequest())))
@@ -278,7 +278,7 @@ class ThreatControllerTest {
 
     @Test
     void theWhatIfWithoutPolicyReadIsForbidden() throws Exception {
-        mvc.perform(post("/threats/evaluate")
+        mvc.perform(post("/api/v1/threats/evaluate")
                         .with(jwt().authorities(authority("track:read")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(evaluateRequest())))
@@ -287,7 +287,7 @@ class ThreatControllerTest {
 
     @Test
     void aWhatIfWithNoSpeedIsRejected() throws Exception {
-        mvc.perform(post("/threats/evaluate")
+        mvc.perform(post("/api/v1/threats/evaluate")
                         .with(jwt().authorities(authority("policy:read")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))

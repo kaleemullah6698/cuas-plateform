@@ -12,7 +12,7 @@ import { api } from '@/api/client';
  * the hooks are complete; M11 wires the gateway route and flips the flag — a data-integration change,
  * not a rewrite. Until then the detail panel shows a clear "awaiting M11" state, never fabricated data.
  */
-export const TRACKS_REST_ROUTED = false;
+export const TRACKS_REST_ROUTED = true;
 
 /** Mirrors track-correlation's {@code TrackResponse} DTO exactly (the wire contract). */
 export interface TrackRecord {

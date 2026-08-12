@@ -12,7 +12,7 @@ import { api } from '@/api/client';
  * actor is ever sent in a body. The decision chain has no engagement-action field: the platform emits
  * advisory recommendations only (§0), and there is nowhere an engagement could be written.
  */
-export const INCIDENTS_REST_ROUTED = false;
+export const INCIDENTS_REST_ROUTED = true;
 
 export type IncidentStatusName = 'OPEN' | 'UNDER_REVIEW' | 'CLOSED';
 

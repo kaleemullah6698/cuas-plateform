@@ -1,0 +1,49 @@
+# Build context exclusions for the service images (ARCHITECTURE.md section 8.2).
+#
+# Every service Dockerfile does `COPY . .` because the Maven reactor spans backend/ and needs the
+# generated contract sources alongside it. Without this file that copy also drags in node_modules,
+# every target/ directory and the whole of .git — hundreds of megabytes per image build, re-sent to
+# the daemon for each of the thirteen services.
+#
+# NOTE: contracts/generated/ is deliberately NOT excluded. It is git-ignored build output, but the
+# in-image Maven build runs with -Dbuf.skip=true (buf is not in the maven base image), so the
+# generated Java has to arrive through the build context. The Dockerfiles fail fast with a readable
+# message if it is missing.
+
+.git
+.gitignore
+.github
+
+# Node
+**/node_modules
+frontend/dist
+frontend/.vite
+frontend/coverage
+frontend/playwright-report
+frontend/test-results
+
+# Maven / Java build output
+**/target
+**/*.class
+
+# Generated bindings for the other two languages; only Java is compiled into the images.
+contracts/generated/python
+contracts/generated/typescript
+
+# Local tooling and editor state
+.idea
+.vscode
+**/*.iml
+.claude
+.toolchain
+
+# Docs and scripts are not needed to build a service jar.
+docs
+*.md
+!backend/*/README.md
+
+# Runtime data that must never be baked into an image.
+evidence
+**/*.log
+.env
+.env.*

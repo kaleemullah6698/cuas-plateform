@@ -9,7 +9,7 @@ import { api } from '@/api/client';
  * notification-service is on a bare path, not gateway-routed (G-4), gated behind {@link
  * NOTIFICATIONS_REST_ROUTED}.
  */
-export const NOTIFICATIONS_REST_ROUTED = false;
+export const NOTIFICATIONS_REST_ROUTED = true;
 
 export const CHANNELS = ['WEBSOCKET', 'EMAIL', 'SMS', 'WEBHOOK'] as const;
 export type Channel = (typeof CHANNELS)[number];

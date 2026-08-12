@@ -226,15 +226,50 @@ Elasticsearch:
 bash scripts/verify-infra.sh
 ```
 
+**Platform acceptance test (M11).** With infra green, this brings up every service and the console,
+signs in as the bootstrap administrator, checks every gateway route, replays an intrusion and waits
+for it to become a track and an alert. It talks only to the gateway on `:8080` — the same surface
+the browser uses:
+
+```bash
+bash scripts/verify-platform.sh
+```
+
+**Before the first run**, copy `.env.example` to `.env` and set the bootstrap administrator. There
+is no seeded login and deliberately no default password — a built-in one would be a credential in
+source control (§7.7), and auth-service refuses to start with the bootstrap enabled and no password:
+
+```bash
+CUAS_BOOTSTRAP_ADMIN_ENABLED=true
+CUAS_BOOTSTRAP_ADMIN_PASSWORD=<at least 12 characters>
+```
+
+Sign in, create real accounts, then set `CUAS_BOOTSTRAP_ADMIN_ENABLED=false`. Leaving it on cannot
+reset the password — the bootstrap never overwrites an existing administrator — but turn it off
+anyway.
+
+**Generate the contract bindings before building images.** The service Dockerfiles run Maven with
+`-Dbuf.skip=true` because `buf` is not in the `maven` base image, so `contracts/generated/java` has
+to arrive through the build context. It is git-ignored build output, so a clean checkout has to
+produce it first. The Dockerfiles fail immediately with a readable message if it is missing:
+
+```bash
+cd contracts && buf generate && cd ..
+docker compose --profile platform build
+```
+
 Manual equivalents:
 
 ```bash
 docker compose --profile infra up -d       # infrastructure only
-docker compose --profile platform up -d    # + Track A services
+docker compose --profile platform up -d    # + Track A services + the operator console on :3000
 docker compose --profile ai up -d          # + Track B AI services
 
 # Databases are created automatically on first postgres init. Topics are declared explicitly:
 docker compose exec kafka bash /scripts/create-topics.sh
+
+# Drive a replayed intrusion through the real intake (it runs once and exits):
+docker compose --profile sim run --rm sensor-simulator
 ```
 
 The two-track switch (ARCHITECTURE.md §6.4):

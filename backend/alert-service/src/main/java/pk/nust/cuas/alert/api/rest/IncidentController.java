@@ -48,7 +48,7 @@ import pk.nust.cuas.commons.correlation.CorrelationId;
  * has no field one could be written into. The platform emits advisory recommendations only.
  */
 @RestController
-@RequestMapping("/incidents")
+@RequestMapping("/api/v1/incidents")
 @Validated
 @Tag(name = "Incidents", description = "Operator-declared investigations, their timeline and evidence")
 public class IncidentController {

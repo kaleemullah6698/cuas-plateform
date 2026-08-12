@@ -14,7 +14,7 @@ import { api } from '@/api/client';
  * flips the flag. Until then the queue shows the live raised feed and the workflow actions are disabled
  * with a clear reason — never a request that cannot succeed, never fabricated status.
  */
-export const ALERTS_REST_ROUTED = false;
+export const ALERTS_REST_ROUTED = true;
 
 export type AlertStatusName = 'RAISED' | 'ACKNOWLEDGED' | 'ESCALATED' | 'RESOLVED' | 'SUPPRESSED';
 

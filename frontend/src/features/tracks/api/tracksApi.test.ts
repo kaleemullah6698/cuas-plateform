@@ -32,10 +32,16 @@ describe('sensorContributions', () => {
   });
 });
 
-describe('M11 integration boundary', () => {
-  it('keeps the track REST queries gated until the gateway routes /tracks (M9 finding G-4)', () => {
-    // A guard test: M11 flips this to true when the gateway route lands. Until then the detail panel
-    // shows an "awaiting M11" state instead of firing requests that cannot succeed.
-    expect(TRACKS_REST_ROUTED).toBe(false);
+/**
+ * M11 wired the gateway route for track-correlation, closing finding G-4 for this screen.
+ *
+ * The guard that used to assert this flag was `false` has been inverted rather than deleted. It is
+ * still doing a job: the flag is the single switch between "the detail panel queries the gateway"
+ * and "it shows an awaiting-integration state", and a silent flip back to `false` would take the
+ * server-authoritative half of the track console off the air with no test failing.
+ */
+describe('M11 integration', () => {
+  it('queries track-correlation through the gateway', () => {
+    expect(TRACKS_REST_ROUTED).toBe(true);
   });
 });

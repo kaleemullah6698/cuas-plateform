@@ -12,8 +12,8 @@
 #   AI_PROVIDER_MODE=mock docker compose --profile platform up -d
 #
 # Infrastructure services are configured for a working first-run (KRaft Kafka with advertised
-# listeners, health checks, host port mappings, and the init scripts mounted). Platform/AI
-# service wiring is still added per milestone.
+# listeners, health checks, host port mappings, and the init scripts mounted). Platform service
+# wiring was completed at M11, when the whole stack was first run together.
 
 x-service-defaults: &defaults
   restart: unless-stopped
@@ -21,6 +21,20 @@ x-service-defaults: &defaults
   logging:
     driver: json-file
     options: {max-size: "10m", max-file: "3"}
+
+# The infrastructure every Track A service needs (M11). Each service's application.yml defaults
+# these to localhost, which is correct when running one service from an IDE and wrong inside a
+# container — localhost there is the service itself. Declaring them once avoids the failure mode
+# where a service is added to compose, starts cleanly, and quietly talks to nothing.
+x-platform-env: &platform-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:-cuas}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  # Every service is a resource server. JWKS is fetched once and cached; no service calls
+  # auth-service per request.
+  AUTH_JWKS_URI: http://auth-service:8081/auth/jwks
 
 services:
   # ── Infrastructure ──────────────────────────────────────────────────
@@ -170,17 +184,42 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       # JWKS is fetched once and cached; the gateway never calls auth-service per request.
       AUTH_JWKS_URI: http://auth-service:8081/auth/jwks
+      # The routing table (section 4.1.1). Completed at M11: every operator-facing service is now
+      # reachable through the gateway under /api/v1, closing finding G-4. The gateway does not wait
+      # on these in depends_on — an unroutable upstream is a 503 on one screen, whereas making the
+      # edge wait for eleven services would mean nobody can even sign in until the slowest is up.
       AUTH_SERVICE_URI: http://auth-service:8081
       USER_SERVICE_URI: http://user-service:8082
       AUDIT_SERVICE_URI: http://audit-service:8090
+      TRACK_SERVICE_URI: http://track-correlation:8084
+      THREAT_SERVICE_URI: http://threat-assessment:8086
+      ALERT_SERVICE_URI: http://alert-service:8087
+      NOTIFICATION_SERVICE_URI: http://notification-service:8088
+      REPORTING_SERVICE_URI: http://reporting-service:8089
+      CONFIG_SERVICE_URI: http://config-service:8091
+      AI_ORCHESTRATOR_URI: http://ai-orchestrator:8085
       GATEWAY_ALLOWED_ORIGINS: http://localhost:3000
+      # The browser reaches the SPA on :3000 and the gateway proxies /ws for it; without an allowed
+      # origin the upgrade is refused and the console shows a permanent "connection lost" banner.
+      GATEWAY_WS_ALLOWED_ORIGINS: http://localhost:3000
 
+  # The first-administrator bootstrap (M11). Both services bind the same identity and each seeds
+  # its own half — auth-service the credential, user-service the identity and its ADMIN role —
+  # because neither may write to the other's database. Off unless CUAS_BOOTSTRAP_ADMIN_ENABLED is
+  # set, and auth-service refuses to start if it is enabled without a password: there is
+  # deliberately no default one (section 7.7).
   auth-service:
     <<: *defaults
     profiles: [platform]
     build:
       context: .
       dockerfile: backend/auth-service/Dockerfile
+    ports: ["8081:8081"]
+    environment:
+      <<: *platform-env
+      CUAS_BOOTSTRAP_ADMIN_ENABLED: ${CUAS_BOOTSTRAP_ADMIN_ENABLED:-false}
+      CUAS_BOOTSTRAP_ADMIN_USERNAME: ${CUAS_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      CUAS_BOOTSTRAP_ADMIN_PASSWORD: ${CUAS_BOOTSTRAP_ADMIN_PASSWORD:-}
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
@@ -190,6 +229,12 @@ services:
     build:
       context: .
       dockerfile: backend/user-service/Dockerfile
+    ports: ["8082:8082", "9082:9082"]
+    environment:
+      <<: *platform-env
+      CUAS_BOOTSTRAP_ADMIN_ENABLED: ${CUAS_BOOTSTRAP_ADMIN_ENABLED:-false}
+      CUAS_BOOTSTRAP_ADMIN_USERNAME: ${CUAS_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      CUAS_BOOTSTRAP_ADMIN_EMAIL: ${CUAS_BOOTSTRAP_ADMIN_EMAIL:-admin@cuas.local}
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
@@ -201,12 +246,10 @@ services:
       dockerfile: backend/sensor-ingestion/Dockerfile
     ports: ["8083:8083", "9083:9083"]
     environment:
+      <<: *platform-env
       # Redis holds the section 4.1.4 dedup window and the per-sensor clock-drift state.
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
       # Dataset replay is a development aid; enable it explicitly, never in a sensor-facing deployment.
       INGESTION_REPLAY_ENABLED: ${INGESTION_REPLAY_ENABLED:-false}
     depends_on:
@@ -239,34 +282,61 @@ services:
     build:
       context: .
       dockerfile: backend/track-correlation/Dockerfile
-    ports: ["8084:8084"]
+    ports: ["8084:8084", "9084:9084"]
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      # JWKS for the track:read resource server; fetched lazily and cached.
-      AUTH_JWKS_URI: http://auth-service:8081/auth/jwks
+      <<: *platform-env
+      # Hot in-flight track state (section 4.1.5). A miss costs latency, never correctness — but
+      # without this the service would look for Redis on its own loopback and take that cost on
+      # every detection.
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # The circuit-broken Infer call (sections 4.1.5, 6.5). Without it the breaker opens against
+      # the service's own loopback, every track stays unclassified, and the threat score loses the
+      # 0.40-weight model-confidence factor — so nothing ever reaches the alert threshold. The
+      # pipeline would look healthy and produce no alerts.
+      AI_ORCHESTRATOR_ENDPOINT: ai-orchestrator:9085
+      # A protected asset, so CPA is computed and proximity/closing/intent are evaluable (section
+      # 6.3.4). With none configured, four of the five scoring factors are permanently absent and
+      # every score rests on model confidence alone — reported as unreliable, and a demonstration
+      # of the pipeline that never shows what it is for. Section 4.1.12 gives assets to
+      # config-service; until then they are configured here and read through the
+      # ProtectedAssetRegistry port. Co-located with the simulator's replay origin.
+      CORRELATION_ASSETS_0_ID: ${PROTECTED_ASSET_ID:-SITE-1}
+      CORRELATION_ASSETS_0_NAME: ${PROTECTED_ASSET_NAME:-Primary Site}
+      CORRELATION_ASSETS_0_LATITUDE: ${PROTECTED_ASSET_LAT:-33.6844}
+      CORRELATION_ASSETS_0_LONGITUDE: ${PROTECTED_ASSET_LON:-73.0479}
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
+      redis: {condition: service_healthy}
   ai-orchestrator:
     <<: *defaults
     profiles: [platform]
     build:
       context: .
       dockerfile: backend/ai-orchestrator/Dockerfile
+    ports: ["8085:8085", "9085:9085"]
     environment:
+      <<: *platform-env
       # The two-track switch — ARCHITECTURE.md section 6.4
       AI_PROVIDER_MODE: ${AI_PROVIDER_MODE:-mock}
+      # The content-addressed inference cache (section 4.1.6).
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # The orchestrator owns no database; the shared block's Postgres entries are harmless and
+      # keeping one block for every service is worth more than trimming two variables here.
     depends_on:
       kafka: {condition: service_started}
-      redis: {condition: service_started}
+      redis: {condition: service_healthy}
   threat-assessment:
     <<: *defaults
     profiles: [platform]
     build:
       context: .
       dockerfile: backend/threat-assessment/Dockerfile
+    ports: ["8086:8086"]
+    environment:
+      <<: *platform-env
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
@@ -276,15 +346,26 @@ services:
     build:
       context: .
       dockerfile: backend/alert-service/Dockerfile
+    ports: ["8087:8087"]
+    environment:
+      <<: *platform-env
+      # The escalation sorted set and the leader lease (section 4.1.8). Unlike the caches above,
+      # this one is load-bearing: without it no unacknowledged alert ever escalates.
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
+      redis: {condition: service_healthy}
   notification-service:
     <<: *defaults
     profiles: [platform]
     build:
       context: .
       dockerfile: backend/notification-service/Dockerfile
+    ports: ["8088:8088"]
+    environment:
+      <<: *platform-env
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
@@ -294,6 +375,9 @@ services:
     build:
       context: .
       dockerfile: backend/reporting-service/Dockerfile
+    ports: ["8089:8089"]
+    environment:
+      <<: *platform-env
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
@@ -303,6 +387,9 @@ services:
     build:
       context: .
       dockerfile: backend/audit-service/Dockerfile
+    ports: ["8090:8090"]
+    environment:
+      <<: *platform-env
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}
@@ -312,6 +399,9 @@ services:
     build:
       context: .
       dockerfile: backend/config-service/Dockerfile
+    ports: ["8091:8091", "9091:9091"]
+    environment:
+      <<: *platform-env
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_started}

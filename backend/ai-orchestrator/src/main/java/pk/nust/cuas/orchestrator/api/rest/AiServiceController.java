@@ -38,7 +38,7 @@ import pk.nust.cuas.orchestrator.domain.model.ServiceId;
  * and health, which is a map of the deployment's internal topology.
  */
 @RestController
-@RequestMapping("/ai/services")
+@RequestMapping("/api/v1/ai/services")
 @Tag(name = "AI services", description = "The registry of AI services and their model versions")
 public class AiServiceController {
 

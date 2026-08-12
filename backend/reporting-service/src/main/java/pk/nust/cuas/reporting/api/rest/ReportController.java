@@ -38,7 +38,7 @@ import pk.nust.cuas.reporting.domain.model.ReportJob;
  * the request thread never waits on it — and the artifact is downloaded once the job has succeeded.
  */
 @RestController
-@RequestMapping("/reports")
+@RequestMapping("/api/v1/reports")
 @Tag(name = "Reports", description = "Templated asynchronous report generation and download")
 public class ReportController {
 

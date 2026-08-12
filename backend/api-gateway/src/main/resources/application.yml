@@ -71,12 +71,18 @@ gateway:
     # Origins allowed to open the WS. Empty means none, so a deployment that forgets serves no browser.
     allowed-origins: ${GATEWAY_WS_ALLOWED_ORIGINS:}
 
-  # Routing table (section 4.1.1). Each milestone adds its service as it becomes routable.
+  # Routing table (section 4.1.1). Every operator-facing API is served under /api/v1 and proxied
+  # unchanged — a path in an access log, an audit record or a bug report means the same thing at
+  # every hop. M11 completed the table: finding G-4 recorded that alert/incident/track/threat/
+  # config/report/notification were reachable only by their bare service paths, which is why the
+  # M10 console held those screens behind routing flags.
   routes:
     - id: auth-service
       uri: ${AUTH_SERVICE_URI:http://localhost:8081}
       prefixes:
         - /api/v1/auth
+        # The JWKS document is fetched by every resource server, not by a browser, and its URL is
+        # baked into their configuration. It keeps its own path.
         - /auth/jwks
     - id: user-service
       uri: ${USER_SERVICE_URI:http://localhost:8082}
@@ -86,6 +92,35 @@ gateway:
       uri: ${AUDIT_SERVICE_URI:http://localhost:8090}
       prefixes:
         - /api/v1/audit
+    - id: track-correlation
+      uri: ${TRACK_SERVICE_URI:http://localhost:8084}
+      prefixes:
+        - /api/v1/tracks
+    - id: threat-assessment
+      uri: ${THREAT_SERVICE_URI:http://localhost:8086}
+      prefixes:
+        - /api/v1/threats
+    - id: alert-service
+      uri: ${ALERT_SERVICE_URI:http://localhost:8087}
+      prefixes:
+        - /api/v1/alerts
+        - /api/v1/incidents
+    - id: notification-service
+      uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8088}
+      prefixes:
+        - /api/v1/notifications
+    - id: reporting-service
+      uri: ${REPORTING_SERVICE_URI:http://localhost:8089}
+      prefixes:
+        - /api/v1/reports
+    - id: config-service
+      uri: ${CONFIG_SERVICE_URI:http://localhost:8091}
+      prefixes:
+        - /api/v1/config
+    - id: ai-orchestrator
+      uri: ${AI_ORCHESTRATOR_URI:http://localhost:8085}
+      prefixes:
+        - /api/v1/ai/services
 
 management:
   endpoints:

@@ -1,0 +1,26 @@
+# Build context exclusions for the operator console image (ARCHITECTURE.md section 8.2).
+#
+# The `web` service builds from ./frontend as its own context, so the repository-root .dockerignore
+# does not apply here — this file is what keeps the context honest.
+#
+# node_modules is the one that matters. The Dockerfile runs `npm ci` and only then `COPY . .`; with
+# the host's node_modules in the context, that copy lands on top of the install the image just
+# performed. On a Windows host that means Linux binaries replaced by Windows ones, and a build that
+# fails inside the container for reasons visible nowhere in the source.
+node_modules
+
+# Build output — regenerated inside the image.
+dist
+.vite
+
+# Test and tooling artefacts, none of which the production bundle needs.
+coverage
+playwright-report
+test-results
+e2e
+
+# Local state.
+.env
+.env.*
+*.log
+.DS_Store

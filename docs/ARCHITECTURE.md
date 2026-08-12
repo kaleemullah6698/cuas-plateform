@@ -981,6 +981,23 @@ Twelve services. Each owns its data, publishes its events, and is independently 
 | **Consumes** | `track.updated.v1`, `alert.raised.v1`, `sensor.health.v1` → WebSocket fan-out |
 | **Scaling** | Stateless; WS sessions tracked in Redis; ~5k concurrent WS per instance |
 
+#### Platform URL convention (amended M11 — normative)
+
+**Every operator-facing REST API is served at `/api/v1/<resource>`, by the owning service itself, and the gateway proxies the path unchanged.**
+
+The §4.1.x tables below name each service's resources in shorthand (`GET /alerts`, `GET /threats/{trackId}`); the wire path is that resource under the `/api/v1` prefix. This was left unstated until M11 and the gap had already produced a divergence — user-service and audit-service shipped on `/api/v1/*` while the seven services built after them shipped bare, which is the mechanical cause of M9 finding **G-4** and of the routing flags M10 had to build behind.
+
+**The prefix belongs to the service, not to the gateway.** The alternative — bare service paths with the gateway stripping a prefix — was considered and rejected: it would mean a path in an audit record (`POST /api/v1/alerts/{id}/acknowledge`) could not be found in the owning service's own logs (`POST /alerts/{id}/acknowledge`), which is the usual reason an incident investigation stalls at a hop boundary. Pass-through keeps one path meaning one thing everywhere, and it is why `RouteConfig` performs no rewriting at all.
+
+Two deliberate exceptions, both non-operator surfaces:
+
+| Path | Owner | Why it is not under `/api/v1` |
+|---|---|---|
+| `/auth/jwks` | auth-service | Fetched by resource servers, not browsers; its URL is baked into their configuration and is a JWKS-standard location |
+| `/ingest/**` | sensor-ingestion | Sensor-adapter intake (§4.1.4), not the operator surface; adapters reach ingestion directly and it is not gateway-routed |
+
+`/actuator/**` and `/v3/api-docs` are per-service management surfaces and are likewise not proxied.
+
 ### 4.1.2 Authentication Service
 
 | | |

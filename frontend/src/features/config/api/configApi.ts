@@ -8,7 +8,7 @@ import { api } from '@/api/client';
  * the namespace kind's §7.4 permission and a justification, enforced server-side. Built and typed
  * against the real contract; M11 wires the route and flips the flag.
  */
-export const CONFIG_REST_ROUTED = false;
+export const CONFIG_REST_ROUTED = true;
 
 export interface ConfigValue {
   namespace: string;

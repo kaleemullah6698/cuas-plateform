@@ -170,27 +170,27 @@ class TrackCorrelationPipelineIntegrationTest {
         String trackId = string("SELECT track_id FROM tracks WHERE sector_id = ?", sector);
 
         // With track:read → 200 and the track is returned.
-        mockMvc.perform(get("/tracks/{id}", trackId)
+        mockMvc.perform(get("/api/v1/tracks/{id}", trackId)
                         .with(jwt().authorities(new SimpleGrantedAuthority("track:read"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trackId").value(trackId))
                 .andExpect(jsonPath("$.status").value("TENTATIVE"));
 
         // Unauthenticated → 401.
-        mockMvc.perform(get("/tracks/{id}", trackId)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/tracks/{id}", trackId)).andExpect(status().isUnauthorized());
 
         // Authenticated but without track:read → 403.
-        mockMvc.perform(get("/tracks/{id}", trackId)
+        mockMvc.perform(get("/api/v1/tracks/{id}", trackId)
                         .with(jwt().authorities(new SimpleGrantedAuthority("track:classify"))))
                 .andExpect(status().isForbidden());
 
         // Unknown id → 404.
-        mockMvc.perform(get("/tracks/{id}", UUID.randomUUID())
+        mockMvc.perform(get("/api/v1/tracks/{id}", UUID.randomUUID())
                         .with(jwt().authorities(new SimpleGrantedAuthority("track:read"))))
                 .andExpect(status().isNotFound());
 
         // The list endpoint, filtered to this test's sector, returns the track.
-        mockMvc.perform(get("/tracks").param("sector", sector)
+        mockMvc.perform(get("/api/v1/tracks").param("sector", sector)
                         .with(jwt().authorities(new SimpleGrantedAuthority("track:read"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].trackId").value(trackId));

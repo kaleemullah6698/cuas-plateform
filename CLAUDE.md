@@ -156,11 +156,32 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M10 complete; M11 next (runtime deployment & full integration).** Backend: full `mvn clean verify`
+**M0–M11.A complete; M12 next (production readiness).** Backend: full `mvn clean verify`
 green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend (`frontend/`, its own npm build):
 **69 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean (map route code-split so MapLibre loads
 on demand — initial bundle 179 KB gzip). Infra verified live (`scripts/verify-infra.sh`: 33). See
 `docs/ROADMAP.md` per milestone and `docs/SECURITY-REVIEW.md` for §7.
+
+**M11.A — runtime integration** ✅. Four blockers between a green suite and a runnable platform, all
+closed. (1) **§4.1.1 amended with a normative URL convention** — every operator-facing API is served
+at `/api/v1/<resource>` *by the owning service*, proxied unchanged; the eight bare-path controllers
+moved. That gap, not any single missing route, is what M9 finding **G-4** actually was. Two
+documented exceptions: `/auth/jwks` and `/ingest/**`. (2) **Gateway routing table and §7.4
+pre-check completed** — nine routes, 30 pre-check rows mirroring each service's `@PreAuthorize`;
+config writes and notification self-service deliberately have **no** row, because the path does not
+reveal the namespace kind and §7.4 has no permission for self-scoped preferences. (3) **All thirteen
+Dockerfiles fixed** — three defects, not the one recorded: missing `-Dbuf.skip=true`, `-pl` with no
+root pom (needs `-f backend/pom.xml`), and git-ignored `contracts/generated` with no guard; plus a
+`.dockerignore`. Verified by building an image end to end. (4) **First-administrator bootstrap** —
+there was no way to sign in at all. Split across auth-service (credential) and user-service
+(identity + ADMIN), sharing `BootstrapAdminProperties` in platform-commons; off by default, no
+default password (startup fails without one), never overwrites, audited fail-closed. The six
+frontend routing flags are flipped and their boundary guards **inverted, not deleted**.
+`scripts/verify-platform.sh` is the black-box acceptance run through the gateway only.
+
+> **Before building images:** run `buf generate` in `contracts/`. The Dockerfiles build with
+> `-Dbuf.skip=true` (no `buf` in the maven image), so the bindings must arrive in the build context;
+> they are git-ignored, and the Dockerfiles fail fast with a readable message if absent.
 
 **Roadmap amended (owner's direction): M10 professional operator console → M11 runtime deployment &
 full integration → M12 production readiness** (defined in `docs/ROADMAP.md` Phase 5). M10 builds the

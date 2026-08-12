@@ -85,8 +85,11 @@ describe('TracksPage', () => {
     const detail = screen.getByRole('complementary');
     expect(within(detail).getByText('Telemetry')).toBeInTheDocument();
     expect(within(detail).getByText('Sensor contributions & history')).toBeInTheDocument();
-    // The history source is an M11 integration point, gated — its awaiting note is shown, not fake data.
-    expect(within(detail).getByText(/Awaiting gateway route/)).toBeInTheDocument();
+    // M11 routed track-correlation through the gateway (finding G-4). The history section now
+    // queries it, so the "Awaiting gateway route" note this used to assert is gone. There is no
+    // stub server in this test, so the query is simply pending — what matters is that the section
+    // is rendered and is no longer holding itself back behind the flag.
+    expect(within(detail).queryByText(/Awaiting gateway route/)).not.toBeInTheDocument();
   });
 
   it('filters the queue by the threat floor', async () => {

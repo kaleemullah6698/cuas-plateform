@@ -132,7 +132,7 @@ than leaving a track with no event.
 
 ## Read API
 
-`GET /tracks`, `GET /tracks/{id}`, `GET /tracks/{id}/history` — all guarded by `track:read`
+`GET /api/v1/tracks`, `GET /api/v1/tracks/{id}`, `GET /api/v1/tracks/{id}/history` — all guarded by `track:read`
 (section 7.4), the permission every role holds. There are no mutating endpoints: a track changes
 only by consuming detections or by the sweeps, never over HTTP.
 

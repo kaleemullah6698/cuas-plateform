@@ -41,7 +41,7 @@ class AiServiceControllerTest {
 
     @Test
     void theRegistryIsListedWithItsLiveHealth() throws Exception {
-        mockMvc.perform(get("/ai/services").with(jwt().authorities(AI_CONFIGURE)))
+        mockMvc.perform(get("/api/v1/ai/services").with(jwt().authorities(AI_CONFIGURE)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("some-service"))
                 .andExpect(jsonPath("$[0].mode").value("MOCK"))
@@ -56,14 +56,14 @@ class AiServiceControllerTest {
     void listingRequiresAiConfigure() throws Exception {
         // Guarded as well as the write: the registry discloses every AI service's endpoint and
         // health, which is a map of the deployment's internal topology.
-        mockMvc.perform(get("/ai/services")).andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/ai/services").with(jwt().authorities(TRACK_READ)))
+        mockMvc.perform(get("/api/v1/ai/services")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/ai/services").with(jwt().authorities(TRACK_READ)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void aModelVersionCanBeSetAndTakesEffectImmediately() throws Exception {
-        mockMvc.perform(post("/ai/services/{id}/model-version", "some-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "some-service")
                         .with(jwt().authorities(AI_CONFIGURE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -71,13 +71,13 @@ class AiServiceControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.modelVersion").value("1.3.0"));
 
-        mockMvc.perform(get("/ai/services").with(jwt().authorities(AI_CONFIGURE)))
+        mockMvc.perform(get("/api/v1/ai/services").with(jwt().authorities(AI_CONFIGURE)))
                 .andExpect(jsonPath("$[0].modelVersion").value("1.3.0"));
     }
 
     @Test
     void aCanaryShareCanBeIntroduced() throws Exception {
-        mockMvc.perform(post("/ai/services/{id}/model-version", "some-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "some-service")
                         .with(jwt().authorities(AI_CONFIGURE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -92,10 +92,10 @@ class AiServiceControllerTest {
         String body = """
                 {"modelVersion":"1.3.0","canaryVersion":"","canaryPercentage":0}""";
 
-        mockMvc.perform(post("/ai/services/{id}/model-version", "some-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "some-service")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/ai/services/{id}/model-version", "some-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "some-service")
                         .with(jwt().authorities(TRACK_READ))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
@@ -103,7 +103,7 @@ class AiServiceControllerTest {
 
     @Test
     void anUnknownServiceIsNotFound() throws Exception {
-        mockMvc.perform(post("/ai/services/{id}/model-version", "no-such-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "no-such-service")
                         .with(jwt().authorities(AI_CONFIGURE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -113,7 +113,7 @@ class AiServiceControllerTest {
 
     @Test
     void aNonSemanticVersionIsRejected() throws Exception {
-        mockMvc.perform(post("/ai/services/{id}/model-version", "some-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "some-service")
                         .with(jwt().authorities(AI_CONFIGURE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -123,7 +123,7 @@ class AiServiceControllerTest {
 
     @Test
     void aCanaryPercentageOutsideZeroToOneHundredIsRejected() throws Exception {
-        mockMvc.perform(post("/ai/services/{id}/model-version", "some-service")
+        mockMvc.perform(post("/api/v1/ai/services/{id}/model-version", "some-service")
                         .with(jwt().authorities(AI_CONFIGURE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

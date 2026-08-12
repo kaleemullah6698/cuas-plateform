@@ -45,7 +45,7 @@ import pk.nust.cuas.config.domain.model.Configuration;
  * of notification-service's self-service decision, flagged rather than papered over.
  */
 @RestController
-@RequestMapping("/config")
+@RequestMapping("/api/v1/config")
 @Validated
 @Tag(name = "Configuration", description = "Runtime configuration namespaces, their history and rollback")
 public class ConfigController {

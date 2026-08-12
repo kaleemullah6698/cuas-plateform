@@ -148,11 +148,11 @@ and a second store would be one more thing to keep coherent for no additional fa
 
 | Endpoint | Permission | Notes |
 |---|---|---|
-| `GET /threats/{trackId}` | `track:read` | 404 when never scored — not a zero score |
-| `GET /threats/{trackId}/breakdown` | `track:read` | §2.4.2's explainability panel |
-| `GET /threats/policies` | `policy:read` | every version, newest first |
-| `PUT /threats/policies` | `policy:write` | new immutable version; audited fail-closed |
-| `POST /threats/evaluate` | `policy:read` | what-if; persists and publishes nothing |
+| `GET /api/v1/threats/{trackId}` | `track:read` | 404 when never scored — not a zero score |
+| `GET /api/v1/threats/{trackId}/breakdown` | `track:read` | §2.4.2's explainability panel |
+| `GET /api/v1/threats/policies` | `policy:read` | every version, newest first |
+| `PUT /api/v1/threats/policies` | `policy:write` | new immutable version; audited fail-closed |
+| `POST /api/v1/threats/evaluate` | `policy:read` | what-if; persists and publishes nothing |
 
 **No new permission was invented.** §7.4's matrix is closed, so a threat score — a fact about a track
 — reads under `track:read`, and the policy surface uses `policy:read`/`policy:write`. §7.4 grants

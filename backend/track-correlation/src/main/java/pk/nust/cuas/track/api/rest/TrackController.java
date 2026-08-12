@@ -31,7 +31,7 @@ import pk.nust.cuas.track.domain.model.TrackStatus;
  * track changes only by consuming detections, never over HTTP.
  */
 @RestController
-@RequestMapping("/tracks")
+@RequestMapping("/api/v1/tracks")
 @Validated
 @Tag(name = "Tracks", description = "Read access to correlated tracks")
 public class TrackController {

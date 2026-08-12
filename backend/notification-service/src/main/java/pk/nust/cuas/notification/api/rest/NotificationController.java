@@ -42,7 +42,7 @@ import pk.nust.cuas.notification.application.PreferencesService;
  * the self-scoping is the authorisation.
  */
 @RestController
-@RequestMapping("/notifications")
+@RequestMapping("/api/v1/notifications")
 @Validated
 @Tag(name = "Notifications", description = "A user's notification preferences, history and test send")
 public class NotificationController {

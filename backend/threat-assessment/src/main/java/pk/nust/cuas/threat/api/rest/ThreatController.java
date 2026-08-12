@@ -47,7 +47,7 @@ import pk.nust.cuas.threat.application.ThreatQueryService;
  * operator had to be able to change a policy in order to ask what one would do.
  */
 @RestController
-@RequestMapping("/threats")
+@RequestMapping("/api/v1/threats")
 @Validated
 @Tag(name = "Threats", description = "Composite threat scores, breakdowns and scoring policy")
 public class ThreatController {

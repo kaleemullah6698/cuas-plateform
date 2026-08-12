@@ -50,7 +50,7 @@ import pk.nust.cuas.commons.correlation.CorrelationId;
  * operator's screen.
  */
 @RestController
-@RequestMapping("/alerts")
+@RequestMapping("/api/v1/alerts")
 @Validated
 @Tag(name = "Alerts", description = "The operator alert queue and its lifecycle")
 public class AlertController {

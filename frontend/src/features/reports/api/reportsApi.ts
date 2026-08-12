@@ -7,7 +7,7 @@ import { api } from '@/api/client';
  * queries and the generate mutation are gated behind {@link REPORTS_REST_ROUTED}. Built and typed
  * against the real contract; M11 wires the route and flips the flag.
  */
-export const REPORTS_REST_ROUTED = false;
+export const REPORTS_REST_ROUTED = true;
 
 export const REPORT_TYPES = ['INCIDENT', 'DAILY_SUMMARY', 'SENSOR_PERFORMANCE', 'FUSION_EFFICACY'] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
