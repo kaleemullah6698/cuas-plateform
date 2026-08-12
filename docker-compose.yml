@@ -102,7 +102,16 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
-    ports: ["8081:8081"]
+    # Host 8081 belongs to auth-service (section 4.1.2); binding it here made the platform
+    # unstartable — "Bind for 0.0.0.0:8081 failed: port is already allocated" — with whichever
+    # container happened to come up first winning. Schema Registry keeps its own 8081 inside the
+    # network, where the conflict does not exist, and is published on 8181 for the rare occasion
+    # somebody wants to browse /subjects from the host.
+    #
+    # Nothing on the platform actually talks to it: the services serialise raw Protobuf and use
+    # ByteArraySerializer, so no producer or consumer resolves a schema through it. It stays in the
+    # topology because section 5.4 specifies it for the Avro/Protobuf registry path.
+    ports: ["8181:8081"]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8081/subjects >/dev/null || exit 1"]
       interval: 10s
@@ -318,8 +327,14 @@ services:
     ports: ["8085:8085", "9085:9085"]
     environment:
       <<: *platform-env
-      # The two-track switch — ARCHITECTURE.md section 6.4
-      AI_PROVIDER_MODE: ${AI_PROVIDER_MODE:-mock}
+      # The AI service registry (section 6.3). The default profile registers services: {} on
+      # purpose — a registry shipped in the default profile would be registered in every deployment
+      # including production, which is the configuration-level version of mistaking a mock for a
+      # real model. The worked four-service registry lives in the dev profile, and this is the
+      # deployment that wants it: without activating it the registry is empty, every Infer routes
+      # nowhere and returns INSUFFICIENT_DATA, no track is ever classified, and the threat score
+      # silently loses its 0.40-weight factor. Nothing errors; there are simply no alerts.
+      SPRING_PROFILES_ACTIVE: ${AI_ORCHESTRATOR_PROFILE:-dev}
       # The content-addressed inference cache (section 4.1.6).
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
