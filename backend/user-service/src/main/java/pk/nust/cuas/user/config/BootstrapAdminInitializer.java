@@ -45,8 +45,16 @@ import pk.nust.cuas.commons.security.Role;
 @EnableConfigurationProperties(BootstrapAdminProperties.class)
 public class BootstrapAdminInitializer implements ApplicationRunner {
 
-    /** After the RBAC reference data, which runs at the default order. */
-    static final int ORDER = 100;
+    /**
+     * After {@link RbacReferenceDataInitializer}, whose order is stated explicitly for this reason:
+     * {@code user_roles.role_code} is a foreign key into {@code roles}, so ADMIN has to exist before
+     * it can be granted.
+     *
+     * <p>Both ends are annotated deliberately. An {@code ApplicationRunner} with no {@code @Order}
+     * sorts at {@code LOWEST_PRECEDENCE}, not at some middling default — so this value alone was not
+     * enough, and the bootstrap ran first against a fresh database and failed its foreign key.
+     */
+    static final int ORDER = RbacReferenceDataInitializer.ORDER + 100;
 
     private static final Logger log = LoggerFactory.getLogger(BootstrapAdminInitializer.class);
     private static final String RESOURCE_TYPE = "USER";

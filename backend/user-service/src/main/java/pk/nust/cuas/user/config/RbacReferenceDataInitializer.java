@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +30,21 @@ import pk.nust.cuas.commons.security.Role;
  * which is a migration-time decision, not a startup one. A stale row is reported instead.
  */
 @Component
+@Order(RbacReferenceDataInitializer.ORDER)
 public class RbacReferenceDataInitializer implements ApplicationRunner {
+
+    /**
+     * Runs before {@link BootstrapAdminInitializer}, which grants ADMIN and therefore needs the row
+     * in {@code roles} that this creates.
+     *
+     * <p>Stated explicitly on both sides rather than relying on a default. An {@code ApplicationRunner}
+     * with no {@code @Order} sorts at {@code LOWEST_PRECEDENCE}, so leaving this unannotated put it
+     * <em>after</em> the bootstrap and produced, on a fresh database:
+     *
+     * <pre>insert or update on table "user_roles" violates foreign key constraint
+     * "user_roles_role_code_fkey" — Key (role_code)=(ADMIN) is not present in table "roles"</pre>
+     */
+    static final int ORDER = 0;
 
     private static final Logger log = LoggerFactory.getLogger(RbacReferenceDataInitializer.class);
 

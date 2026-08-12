@@ -26,6 +26,18 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 2s
 
+  # The admin API is a resource server like every other operator-facing surface (section 7.2): its
+  # two endpoints carry @PreAuthorize("hasAuthority('ai:configure')"), and SecurityConfig therefore
+  # needs a JwtDecoder. This block was missing until M11 — the service had only ever been exercised
+  # by sliced tests, which supply the key set through application-test.yml, so it could not start as
+  # a container at all: "Method filterChain required a bean of type JwtDecoder that could not be
+  # found." Nothing caught it because no test starts the whole context.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_JWKS_URI:http://localhost:8081/auth/jwks}
+
 server:
   port: 8085
 
