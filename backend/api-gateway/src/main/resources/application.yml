@@ -22,7 +22,24 @@ spring:
       acks: "1"
       properties:
         # Edge telemetry must never hold up a request; a slow broker is dropped, not waited on.
+        #
+        # All four values are stated because Kafka validates them against each other:
+        # delivery.timeout.ms must be >= linger.ms + request.timeout.ms. Setting only the delivery
+        # timeout left request.timeout.ms at its 30 s default, so 5000 >= 0 + 30000 was false and
+        # *every* producer construction threw
+        #
+        #   ConfigException: delivery.timeout.ms should be equal to or larger than
+        #                    linger.ms + request.timeout.ms
+        #
+        # The gateway builds its producer lazily, per publish, so this did not fail at startup: it
+        # failed on every access-log and rate-limit event, and the raw KafkaException escaped
+        # RateLimitRejectionRecorder's AuditWriteException catch. A rate-limited request therefore
+        # returned 500, and the error dispatch rendered that as a 401 — a refusal that looked like
+        # a broken credential. Found by running the assembled platform (M11); no test constructs a
+        # real producer.
         max.block.ms: 2000
+        linger.ms: 0
+        request.timeout.ms: 3000
         delivery.timeout.ms: 5000
     consumer:
       # The WebSocket fan-out (§4.1.1): the gateway is a live edge, not a durable processor, so it
