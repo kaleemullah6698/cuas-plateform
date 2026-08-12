@@ -1,4 +1,38 @@
-* text=auto eol=lf
-*.sh text eol=lf
-*.jar binary
-*.onnx binary
+# Line-ending policy.
+#
+# The platform is developed on Windows and runs on Linux. Git's autocrlf will happily hand a shell
+# script CRLF endings in the working tree, and that file is then bind-mounted straight into a
+# container — where bash reads `set -euo pipefail\r` and reports:
+#
+#     /scripts/create-topics.sh: line 16: set: pipefail: invalid option name
+#
+# It then carries on with `set -e` inactive and fails silently partway through. That is exactly how
+# the M11 acceptance run got 27 of its 43 Kafka topics and no error.
+#
+# Anything executed by a Linux shell, or read by a Linux tool, is therefore pinned to LF regardless
+# of platform or of a developer's core.autocrlf setting.
+
+* text=auto
+
+*.sh          text eol=lf
+*.bash        text eol=lf
+Dockerfile    text eol=lf
+*.Dockerfile  text eol=lf
+.dockerignore text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.sql         text eol=lf
+*.proto       text eol=lf
+
+# Windows-only helpers keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary — never touch.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.jar  binary
