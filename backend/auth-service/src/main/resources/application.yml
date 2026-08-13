@@ -77,7 +77,17 @@ auth:
   user-service:
     host: ${USER_SERVICE_HOST:localhost}
     port: ${USER_SERVICE_GRPC_PORT:9082}
-    deadline-ms: 2000
+    # 2 s is the steady-state budget and stays the default. It is not enough for the *first* call
+    # after a restart: user-service pays class-loading, JIT and connection setup on that one, and on
+    # a contended host it overruns —
+    #
+    #   DEADLINE_EXCEEDED: deadline exceeded after 1.817s ... buffered_nanos=1246359639
+    #
+    # which surfaces as a 500 on the very first sign-in and nothing afterwards. Made configurable at
+    # M11 so a deployment can allow for its own cold start; the local stack raises it in
+    # docker-compose.yml. Overridable rather than simply larger, because a permanently generous
+    # deadline on the login path would hide a genuinely slow user-service.
+    deadline-ms: ${USER_SERVICE_DEADLINE_MS:2000}
 
 management:
   endpoints:

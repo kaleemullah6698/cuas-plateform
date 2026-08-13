@@ -156,7 +156,7 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M11.A complete; M12 next (production readiness).** Backend: full `mvn clean verify`
+**M0–M11 complete; M12 next (production readiness).** Backend: full `mvn clean verify`
 green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend (`frontend/`, its own npm build):
 **69 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean (map route code-split so MapLibre loads
 on demand — initial bundle 179 KB gzip). Infra verified live (`scripts/verify-infra.sh`: 33). See
@@ -178,6 +178,34 @@ there was no way to sign in at all. Split across auth-service (credential) and u
 default password (startup fails without one), never overwrites, audited fail-closed. The six
 frontend routing flags are flipped and their boundary guards **inverted, not deleted**.
 `scripts/verify-platform.sh` is the black-box acceptance run through the gateway only.
+
+**M11.B — the assembled platform, actually run** ✅. The first time the whole stack was started
+together and driven by a browser. Six defects a green reactor cannot see, **five of them silent** —
+every container up, every readiness probe 200, and the thing an operator wanted simply not happening,
+with no exception and no ERROR line. (1) auth-service resolved user-service's gRPC to `localhost`, so
+every login 500'd on the `ResolvePermissions` hop that builds the JWT's `perms`. (2) The gateway's
+Kafka producer **could never be constructed** — `delivery.timeout.ms` set alone against a 30 s default
+`request.timeout.ms` — and because the raw `KafkaException` escaped `RateLimitRejectionRecorder`'s
+`AuditWriteException` catch, a rate-limited login rendered as **401**, indistinguishable from a wrong
+password. (3) nginx in the `web` container resolves its upstream once at start, so recreating the
+gateway made every `/api` and `/ws` call 502 while the gateway was healthy. (4)
+`docker compose --profile sim run` was an invalid project (`sensor-ingestion` is in `platform`).
+(5) **Every replay after the first was discarded in full**: the intake dedups on
+`(sensorId, sensorSeq)` (§4.1.4) and the simulator reused fixed ids with sequences restarting at 1, so
+a second replay *was* a redelivery — 600 detections "accepted", dropped at normalisation at DEBUG, no
+track, no error. Fixed in the **simulator** (optional `simulator.run-label`, empty by default); the
+dedup window is correct and untouched. (6) `AI_PROVIDER_MODE`, documented as the §6.4 switch, is read
+by **nothing** — the real control is `AI_ORCHESTRATOR_PROFILE`.
+**Acceptance:** `scripts/verify-journey.sh` + `frontend/e2e-live/` + `playwright.live.config.ts` drive
+the real built SPA in Chromium with **no `page.route` and no `routeWebSocket`**, capturing the
+gateway's own envelopes — `CONNECTED`, `SNAPSHOT`(tracks+sensors), `DELTA`, and an `ALERT`
+(`ALT-4243`, `THREAT_LEVEL_MEDIUM`) whose `trackId` is the track delivered at `DELTA seq 3`.
+**Recorded limitations, not worked around:** under a full-burst replay the mock provider's latency
+model (p95 fitted *to* each timeout, §6.4) opens track-correlation's breaker, so tracks stay
+unclassified while it is open (§6.5 degradation — tracks/scores/alerts unaffected); thinning the
+replay drops below `required-consecutive-sweeps` and yields no tracks at all. `LOGIN_PER_ACCOUNT` is
+10/hour burst 3 (§7.8) and genuinely bites repeated runs — never probe it, the probe is itself a
+login. Build with `COMPOSE_PARALLEL_LIMIT=2`: the engine died twice under concurrent builds.
 
 > **Before building images:** run `buf generate` in `contracts/`. The Dockerfiles build with
 > `-Dbuf.skip=true` (no `buf` in the maven image), so the bindings must arrive in the build context;

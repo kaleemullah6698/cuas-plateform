@@ -235,6 +235,46 @@ the browser uses:
 bash scripts/verify-platform.sh
 ```
 
+**Live operator journey (M11.B).** The acceptance run above proves the platform *answers*. This one
+proves an operator can *use* it: it drives the built SPA the `web` container serves, in Chromium,
+with **no mocked login and no mocked WebSocket**, and replays a real intrusion while the browser is
+watching:
+
+```bash
+bash scripts/verify-journey.sh
+```
+
+The ordering inside it matters. The gateway's fan-out consumer reads from `latest` and its track
+snapshot comes from an in-memory view (§3.5, decision D-1), so anything replayed before the browser's
+socket is established is never pushed to it. The replay therefore fires *after* sign-in, not before.
+
+**Build with reduced parallelism.** Docker Desktop's Linux engine died twice during M11 under
+concurrent image builds — every API route returning 500 and taking the whole stack with it. The `web`
+image (`npm ci` + `vite build`) is the heaviest single step:
+
+```bash
+COMPOSE_PARALLEL_LIMIT=2 docker compose --profile infra --profile platform up -d --build
+```
+
+Three things about the live run are worth knowing before they look like faults:
+
+- **A 429 on sign-in is the rate limiter working.** `LOGIN_PER_ACCOUNT` is 10/hour with burst 3
+  (§7.8), refilling about one token every six minutes. Diagnosing a failed run costs sign-ins, and
+  the next run's browser then meets a 429 — wait for the window. Do not probe the endpoint to check:
+  the probe is itself a login and consumes the token the run needs.
+- **The class column reads `——` under a full-burst replay.** The mock inference provider samples a
+  lognormal fitted so its p95 lands exactly on each service's configured timeout (§6.4) and sleeps
+  for the sample, so a burst pushes track-correlation past its `PT0.5S` Infer budget and opens its
+  breaker. Tracks stay unclassified while it is open — §6.5's specified degradation, with tracks,
+  scores and alerts unaffected. Thinning the replay does not help: it drops below
+  `required-consecutive-sweeps` and produces no tracks at all.
+- **Replays are only distinguishable if they are labelled.** sensor-ingestion deduplicates on
+  `(sensorId, sensorSeq)` so redelivery is safe (§4.1.4). The simulator emits fixed sensor ids with
+  sequences restarting at 1, so a second replay looks exactly like a redelivery of the first and is
+  dropped in full at normalisation — every detection reported accepted, no track, and nothing above
+  DEBUG to say why. Both acceptance scripts set `SIMULATOR_RUN_LABEL` per replay; set it yourself
+  when replaying by hand.
+
 **Before the first run**, copy `.env.example` to `.env` and set the bootstrap administrator. There
 is no seeded login and deliberately no default password — a built-in one would be a credential in
 source control (§7.7), and auth-service refuses to start with the bootstrap enabled and no password:
@@ -268,17 +308,37 @@ docker compose --profile ai up -d          # + Track B AI services
 # Databases are created automatically on first postgres init. Topics are declared explicitly:
 docker compose exec kafka bash /scripts/create-topics.sh
 
-# Drive a replayed intrusion through the real intake (it runs once and exits):
-docker compose --profile sim run --rm sensor-simulator
+# Drive a replayed intrusion through the real intake (it runs once and exits).
+# Both profiles: sensor-simulator depends_on sensor-ingestion, which lives in `platform`. With only
+# `sim` active that service is not part of the project and compose rejects the whole file —
+# "depends on undefined service sensor-ingestion: invalid compose project". --no-deps then stops it
+# restarting the stack you are measuring.
+# SIMULATOR_RUN_LABEL makes this replay distinguishable from the last one at the intake, which
+# deduplicates on (sensorId, sensorSeq). Without it the second and every later replay is dropped in
+# full at normalisation — accepted, then silently discarded, with no tracks and no error to show why.
+SIMULATOR_RUN_LABEL=$(date +%s) \
+  docker compose --profile sim --profile platform run --rm --no-deps sensor-simulator
 ```
 
-The two-track switch (ARCHITECTURE.md §6.4):
+The two-track switch (ARCHITECTURE.md §6.4) is the **Spring profile ai-orchestrator runs under**:
 
 ```bash
-AI_PROVIDER_MODE=mock docker compose --profile platform up -d
+AI_ORCHESTRATOR_PROFILE=dev docker compose --profile platform up -d   # the default
 ```
 
-With `mock`, the entire platform runs end-to-end with zero trained models. Mocked results carry `model_version: "0.0.0-mock"` and `device: DEVICE_MOCK`, and the dashboard renders an explicit MOCK INFERENCE badge — mocked and real results are never confusable.
+`ai.services` is deliberately empty in ai-orchestrator's default profile — a default that registered
+example services would register four mock-backed ones in every deployment, production included. The
+worked registry from §6.3 lives in `application-dev.yml`, so the local stack sets
+`SPRING_PROFILES_ACTIVE` from `AI_ORCHESTRATOR_PROFILE`, defaulting to `dev`. Without it the registry
+is empty, routing matches nothing, and **every track stays unclassified with no error anywhere** —
+the pipeline runs and quietly produces no classifications.
+
+> Corrected at M11: this section previously documented `AI_PROVIDER_MODE=mock`, which is read by
+> nothing in the codebase. Setting it had no effect at all.
+
+With the `dev` registry the entire platform runs end-to-end with zero trained models. Mocked results
+carry `model_version: "0.0.0-mock"` and `device: DEVICE_MOCK`, and the dashboard renders an explicit
+MOCK INFERENCE badge — mocked and real results are never confusable.
 
 ---
 

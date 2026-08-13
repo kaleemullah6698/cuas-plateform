@@ -11,6 +11,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +37,13 @@ class SimulationRunnerTest {
     private IngestClient grpcClient;
 
     private SimulationProperties properties(Transport transport, int sensors, int perSensor) {
-        return new SimulationProperties("http://x", "localhost", 9083, transport, sensors, perSensor, 50, false);
+        return properties(transport, sensors, perSensor, "");
+    }
+
+    private SimulationProperties properties(Transport transport, int sensors, int perSensor,
+                                            String runLabel) {
+        return new SimulationProperties("http://x", "localhost", 9083, transport, sensors, perSensor,
+                50, false, runLabel);
     }
 
     private SimulationRunner runner(SimulationProperties properties, IngestClient... clients) {
@@ -56,6 +64,47 @@ class SimulationRunnerTest {
         // Two distinct sensors, each emitting three sequence numbers.
         assertThat(sent.getValue().stream().map(DetectionRecord::getSensorId).distinct().count())
                 .isEqualTo(2L);
+    }
+
+    /**
+     * The intake deduplicates on {@code (sensorId, sensorSeq)} so at-least-once redelivery is safe
+     * (ARCHITECTURE.md section 4.1.4). With fixed sensor ids and sequences restarting at 1, a second
+     * replay is indistinguishable from a redelivery of the first and is dropped in full at
+     * normalisation — every detection reported as accepted, no track produced, and nothing logged
+     * above DEBUG to say why. The run label is what makes two runs distinguishable.
+     */
+    @Test
+    void runsWithDifferentLabelsEmitDisjointSensorIds() {
+        when(restClient.transport()).thenReturn(Transport.REST);
+        when(restClient.send(anyList())).thenReturn(IngestReport.empty(Transport.REST));
+
+        runner(properties(Transport.REST, 2, 3, "runA"), restClient).execute();
+        runner(properties(Transport.REST, 2, 3, "runB"), restClient).execute();
+
+        ArgumentCaptor<List<DetectionRecord>> sent = ArgumentCaptor.forClass(List.class);
+        verify(restClient, Mockito.times(2)).send(sent.capture());
+
+        Set<String> first = sent.getAllValues().get(0).stream()
+                .map(DetectionRecord::getSensorId).collect(Collectors.toSet());
+        Set<String> second = sent.getAllValues().get(1).stream()
+                .map(DetectionRecord::getSensorId).collect(Collectors.toSet());
+
+        assertThat(first).allSatisfy(id -> assertThat(id).endsWith("-runA"));
+        assertThat(second).allSatisfy(id -> assertThat(id).endsWith("-runB"));
+        assertThat(first).doesNotContainAnyElementsOf(second);
+    }
+
+    /** An unset label reproduces the original ids exactly, so nothing existing changes shape. */
+    @Test
+    void anEmptyRunLabelLeavesSensorIdsUnchanged() {
+        when(restClient.transport()).thenReturn(Transport.REST);
+        when(restClient.send(anyList())).thenReturn(IngestReport.empty(Transport.REST));
+
+        runner(properties(Transport.REST, 1, 1, ""), restClient).execute();
+
+        ArgumentCaptor<List<DetectionRecord>> sent = ArgumentCaptor.forClass(List.class);
+        verify(restClient).send(sent.capture());
+        assertThat(sent.getValue().get(0).getSensorId()).isEqualTo("sim-rf-0");
     }
 
     @Test

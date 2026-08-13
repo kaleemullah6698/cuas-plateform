@@ -20,6 +20,12 @@ simulator:
   detections-per-sensor: ${SIMULATOR_DETECTIONS_PER_SENSOR:100}
   batch-size: ${SIMULATOR_BATCH_SIZE:50}
   run-on-startup: ${SIMULATOR_RUN_ON_STARTUP:false}
+  # Distinguishes one run's sensors from another's. Empty keeps the original fixed ids.
+  # sensor-ingestion dedups on (sensorId, sensorSeq) so redelivery is safe (section 4.1.4); with
+  # fixed ids and sequences restarting at 1, a second replay looks exactly like a redelivery of the
+  # first and is dropped in full at normalisation — accepted at the intake, then silently discarded,
+  # producing no tracks and no error. Set this per run to replay repeatedly.
+  run-label: ${SIMULATOR_RUN_LABEL:}
 
 logging:
   level:

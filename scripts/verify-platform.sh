@@ -179,7 +179,17 @@ echo "== 7. Replay an intrusion =="
 BEFORE=$(auth_body "/api/v1/alerts?limit=500" 2>/dev/null | grep -o '"alertId"' | wc -l | tr -d ' ')
 info "alerts before replay: $BEFORE"
 
-if dc --profile sim run --rm sensor-simulator >/dev/null 2>&1; then
+# A label unique to this run. The intake deduplicates on (sensorId, sensorSeq) so at-least-once
+# redelivery is safe (section 4.1.4); the simulator emits fixed sensor ids with sequences restarting
+# at 1, so a second acceptance run on the same stack is indistinguishable from a redelivery of the
+# first and is dropped in full at normalisation — every detection accepted, no track, no error.
+export SIMULATOR_RUN_LABEL="${SIMULATOR_RUN_LABEL:-verify$$}"
+
+# Both profiles, and --no-deps. sensor-simulator depends_on sensor-ingestion, which is in the
+# `platform` profile: with only `sim` active compose rejects the whole project ("depends on undefined
+# service sensor-ingestion"), and without --no-deps it would restart the stack this run is measuring.
+# --build because `compose run` reuses an existing image and does not rebuild on a source change.
+if dc --profile sim --profile platform run --rm --no-deps --build sensor-simulator >/dev/null 2>&1; then
   pass "sensor-simulator replay completed"
 else
   fail "sensor-simulator replay completed"

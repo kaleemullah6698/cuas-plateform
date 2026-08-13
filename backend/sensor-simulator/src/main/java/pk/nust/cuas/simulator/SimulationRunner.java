@@ -95,12 +95,26 @@ public class SimulationRunner implements ApplicationRunner {
         List<DetectionRecord> detections = new ArrayList<>();
         for (int sensor = 0; sensor < properties.sensors(); sensor++) {
             SensorModality modality = MODALITY_ROTATION[sensor % MODALITY_ROTATION.length];
-            String sensorId = "sim-" + label(modality) + '-' + sensor;
+            String sensorId = "sim-" + label(modality) + '-' + sensor + runSuffix();
             for (long seq = 1; seq <= properties.detectionsPerSensor(); seq++) {
                 detections.add(factory.create(sensorId, modality, seq, base.plusMillis(seq * 100)));
             }
         }
         return detections;
+    }
+
+    /**
+     * Appended to every sensor id so one run's sensors are distinguishable from another's.
+     *
+     * <p>Empty unless {@code simulator.run-label} is set, which reproduces the original fixed ids
+     * exactly. It exists because sensor-ingestion deduplicates on {@code (sensorId, sensorSeq)} to
+     * make at-least-once redelivery safe (section 4.1.4): with fixed ids and sequences restarting at
+     * 1 every run, a second replay is indistinguishable from a redelivery of the first and is
+     * discarded in full, silently and with every detection still reported as accepted.
+     */
+    private String runSuffix() {
+        String label = properties.runLabel();
+        return label.isBlank() ? "" : "-" + label;
     }
 
     private String label(SensorModality modality) {

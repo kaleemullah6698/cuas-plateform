@@ -1183,6 +1183,121 @@ Three of those extras would each have produced a platform that looked healthy an
 
 **`scripts/verify-platform.sh`** is the acceptance run: bring up infra + platform, wait on all twelve readiness probes, sign in as the bootstrap administrator through the gateway, assert every G-4 route answers, assert an unauthenticated request is still refused at the edge, replay an intrusion through `sensor-simulator`, and poll until it becomes a track and an alert. It is deliberately **black-box** — only the gateway on `:8080`, exactly as the browser sees it. A check that reached past the gateway could pass while the thing an operator uses was broken, which is precisely what G-4 was.
 
+**M11.B — the assembled platform, actually run** — ✅ **Complete**
+
+M11.A made the platform *deployable*. M11.B is the first time it was **started as a whole and driven
+by a browser**, and that turned up six defects a green reactor cannot see. Every one of them was a
+configuration or integration fault; none needed an architecture change, and none was fixed by
+loosening a control.
+
+The pattern worth recording is that **five of the six were silent**. Each produced a platform where
+every container was up, every readiness probe returned 200, and the thing an operator wanted did not
+happen — no exception, no ERROR line, nothing to search for.
+
+1. **auth-service could not reach user-service.** `USER_SERVICE_HOST` defaults to `localhost`, which
+   inside a container is the service itself. auth-service authenticates and then calls user-service's
+   gRPC `ResolvePermissions` to build the JWT's `perms` claim (§4.1.2, §4.1.3), so *every* login
+   returned 500: `UNAVAILABLE … Connection refused: localhost/[::1]:9082`. Same class as the
+   `AI_ORCHESTRATOR_ENDPOINT` gap M11.A closed — an address that is right for one developer on one
+   host and wrong for every containerised deployment.
+
+2. **The gateway's Kafka producer could never be constructed.** `delivery.timeout.ms: 5000` was set
+   alone, leaving `request.timeout.ms` at its 30 s default, so Kafka's
+   `delivery.timeout.ms >= linger.ms + request.timeout.ms` invariant never held. The producer is
+   built lazily per publish, so nothing failed at startup — it failed on every access-log and
+   rate-limit event. The consequence was worse than lost telemetry: `RateLimitRejectionRecorder`
+   catches `AuditWriteException` so a refusal still stands when its audit write is lost (§7.5), but a
+   raw `KafkaException` is not that type. It escaped, the rate-limited request became a 500, and the
+   error dispatch to `/error` was refused by `ProblemAuthenticationEntryPoint` and rendered **401**.
+   A rate-limited login was therefore indistinguishable from a wrong password. Fixed by stating all
+   four related values; fail-closed auditing is unchanged.
+
+3. **The `web` container proxied to a dead address.** nginx resolves a literal upstream name once, at
+   worker start, and holds it. Recreating api-gateway gave it a new container IP and every `/api` and
+   `/ws` request answered 502 — the console showed "Sign-in failed. Please try again." while the
+   gateway was healthy. Restarting `web` would have masked it; instead the upstream is now named
+   through a variable with Docker's embedded resolver and `valid=10s`, so it re-resolves per request.
+
+4. **`docker compose --profile sim run` was an invalid project.** `sensor-simulator` `depends_on`
+   `sensor-ingestion`, which lives in the `platform` profile, so with only `sim` active compose
+   rejected the entire file rather than skipping the dependency. Both acceptance scripts and
+   `DEVELOPMENT.md` now pass both profiles with `--no-deps`.
+
+5. **Every replay after the first was discarded in full.** This was the expensive one.
+   sensor-ingestion deduplicates on `(sensorId, sensorSeq)` so at-least-once redelivery is safe
+   (§4.1.4), and the simulator emitted three fixed sensor ids with sequences restarting at 1 on every
+   run — so from the intake's point of view a second replay *was* a redelivery of the first. All 600
+   detections were accepted to the raw topic and then dropped at normalisation, at DEBUG. The
+   simulator reported `accepted 300, rejected 0`, no track appeared, and nothing above DEBUG said
+   why; Kafka confirmed it, with `sensor.detection.normalized.v1` holding exactly one run's worth and
+   zero consumer lag. **The dedup window is correct and untouched** — weakening it would have broken
+   the §4.1.4 guarantee to make a demo replay. The simulator gained an optional
+   `simulator.run-label`, empty by default (reproducing the original ids exactly), appended to each
+   sensor id; both acceptance scripts set a unique one per replay. Two tests cover it.
+
+6. **`AI_PROVIDER_MODE` is read by nothing.** `DEVELOPMENT.md` documented it as the §6.4 two-track
+   switch. Setting it had no effect whatsoever. The real control is which Spring profile
+   ai-orchestrator runs under: `ai.services` is deliberately empty in the default profile, and the
+   worked §6.3 registry lives in `application-dev.yml`. Without a profile the registry is empty,
+   routing matches nothing, and every track stays unclassified with no error anywhere. Corrected to
+   `AI_ORCHESTRATOR_PROFILE`, which compose already sets.
+
+A seventh, found while verifying the fifth: **`docker compose run` reuses whatever image exists and
+does not rebuild on a source change.** The simulator container went on running pre-`run-label` code
+while the source on disk plainly had the fix, so replays were still being dropped and the sensor ids
+were still the old fixed ones. Worse, it produced a false positive first: a replay right after a stack
+recreate *did* yield tracks, because the recreate had cleared sensor-ingestion's in-memory dedup
+window — the label had nothing to do with it. Checking the emitted sensor ids, rather than inferring
+from a track count, is what settled it. Both acceptance scripts now build the simulator image
+explicitly, **before** the browser starts: building it inside the timed replay merely moves the
+problem, because the build then consumes the window the spec is waiting in.
+
+**The acceptance evidence.** `scripts/verify-journey.sh` drives the real built SPA the `web` container
+serves, in Chromium, with **no `page.route` and no `routeWebSocket`** — `frontend/e2e-live/` and
+`playwright.live.config.ts`, deliberately a separate config from the M9 spec because it only passes
+with the whole stack up. It signs in against auth-service through the gateway and reads tracks and
+alerts off the gateway's own `/ws`. The frames the browser received:
+
+```
+OPEN      ws://localhost:3000/ws?token=<RS256 JWT, sub 00000000-…-0001, roles ADMIN>
+CONNECTED {"sessionId":"1626cd9a-a814-da16-4cd5-fe78c033f79e"}
+SNAPSHOT  tracks  seq 1   {"tracks":[]}          <- the gateway starts empty
+SNAPSHOT  sensors seq 1
+DELTA     tracks  seq 2   trackId 019ff95a-76d4-7c3a-a03e-d720a6b4bbe8  SECTOR_33_73
+DELTA     tracks  seq 3 … 14                     <- arriving after the replay begins
+DELTA     sensors seq 4   sim-rf-0-962x1 ONLINE  <- run-labelled ids, so not a redelivery
+```
+
+The empty `SNAPSHOT` is the part that matters. The gateway is restarted before the run, so its
+in-memory view is empty and its fan-out consumer sits at `latest`; every track the browser then
+receives arrived over the socket *after* the replay started, and nothing in the run can be explained
+by data left over from an earlier one. An earlier pass, before the gateway was restarted, additionally
+captured the `ALERT` envelope in full — `reference ALT-4243`, `THREAT_LEVEL_MEDIUM`, with a `trackId`
+matching the track delivered at `DELTA seq 3`, one object having traversed
+ingestion → correlation → inference → scoring → alerting → fan-out → browser. A separate replay
+produced 22 tracks and 16 alerts with real `ALT-` references, auto-resolved as their tracks were
+lost, and `threat.recommendation.generated` carrying `RECOMMEND_OPERATOR_REVIEW` — advisory only, as
+§0 requires.
+
+**Runtime limitations, recorded rather than worked around:**
+
+- **Tracks stay unclassified while track-correlation's breaker is open.** The mock inference provider
+  samples a lognormal fitted so its p95 lands *exactly* on each service's configured timeout (§6.4) —
+  deliberately, so the breaker is exercised rather than never tripped — and it sleeps for the sample.
+  600 detections in a few seconds push past track-correlation's `PT0.5S` Infer budget, the breaker
+  opens, and the class column reads `——`. This is §6.5's specified degradation: the pipeline
+  continues without the model rather than stalling on it. Tracks, scores and alerts are unaffected.
+  Thinning the replay does *not* help — it drops below `required-consecutive-sweeps` and produces no
+  tracks at all, which was tried and reverted.
+- **The login rate limit is real and bites the acceptance run.** `LOGIN_PER_ACCOUNT` is 10/hour with
+  burst 3 (§7.8), refilling about one token every six minutes. Diagnosing a failed run costs sign-ins,
+  and the next run's browser then meets a 429. The spec reports that explicitly, with the server's
+  `Retry-After`, instead of the "still on /login" that every cause used to look like. It is not
+  configurable and was not loosened.
+- **Docker Desktop's Linux engine died twice** under concurrent image builds on a 7.4 GB engine, taking
+  the whole stack with it. Build with `COMPOSE_PARALLEL_LIMIT=2`; the `web` image (`npm ci` +
+  `vite build`) is the heaviest single step. A host constraint, not a platform defect.
+
 **Known issues found during M11, neither caused by it:**
 
 - **The M9 Playwright E2E (`intrusion-to-alert.spec.ts`) is failing** — `getByText('alpha-01')` finds nothing on the dashboard after sign-in. Confirmed pre-existing by a control run with the six routing flags reverted to `false`: it fails identically, so it is not a consequence of the M11 integration. The dashboard reads only the realtime hooks and fires no REST, which is consistent with that. Not diagnosed further here; it needs its own investigation and is the first item for M11.B.

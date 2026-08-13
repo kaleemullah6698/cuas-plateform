@@ -233,6 +233,11 @@ services:
       # missing address.
       USER_SERVICE_HOST: user-service
       USER_SERVICE_GRPC_PORT: "9082"
+      # The first ResolvePermissions call after a restart pays user-service's class-loading and JIT
+      # warm-up and overruns the 2 s default on a laptop-sized engine, so the very first sign-in
+      # returns 500 and every one after it succeeds. Raised for the local stack only; the service
+      # default is unchanged.
+      USER_SERVICE_DEADLINE_MS: ${USER_SERVICE_DEADLINE_MS:-8000}
       # The refresh cookie is Secure by default and must stay so anywhere the service is reachable
       # over a network (section 7.3). The local acceptance stack is plain HTTP on localhost, where a
       # Secure cookie is never returned by the browser, so the session could not be restored.
@@ -293,6 +298,18 @@ services:
       INGEST_GRPC_HOST: sensor-ingestion
       INGEST_GRPC_PORT: "9083"
       SIMULATOR_TRANSPORT: ${SIMULATOR_TRANSPORT:-BOTH}
+      # Scenario size, passed through so a run can be tuned from the host without rebuilding. The
+      # defaults match the service's own. The mock inference provider sleeps for a lognormal sampled
+      # against each service's timeout (section 6.4), so a large burst deliberately drives
+      # track-correlation past its Infer budget and opens its breaker — useful to demonstrate, but
+      # not what an acceptance run wants by default. See scripts/verify-journey.sh.
+      SIMULATOR_SENSORS: ${SIMULATOR_SENSORS:-3}
+      SIMULATOR_DETECTIONS_PER_SENSOR: ${SIMULATOR_DETECTIONS_PER_SENSOR:-100}
+      SIMULATOR_BATCH_SIZE: ${SIMULATOR_BATCH_SIZE:-50}
+      # Set this per replay to make repeated runs distinguishable at the intake, which deduplicates
+      # on (sensorId, sensorSeq). Without it the second and every later replay is dropped in full at
+      # normalisation — accepted, then silently discarded, with no tracks and no error to show why.
+      SIMULATOR_RUN_LABEL: ${SIMULATOR_RUN_LABEL:-}
       SIMULATOR_RUN_ON_STARTUP: "true"
     depends_on:
       sensor-ingestion: {condition: service_started}
