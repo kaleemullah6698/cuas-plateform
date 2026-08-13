@@ -58,6 +58,21 @@ test('Sensor Health shows the live sensor picture', async ({ page }) => {
   });
 });
 
+test('Threat Timeline shows real raised events in order', async ({ page }) => {
+  await signIn(page);
+
+  await page.getByRole('link', { name: 'Threat Timeline' }).click();
+  await expect(page).toHaveURL(/\/timeline/);
+  await expect(page.getByRole('heading', { name: 'Threat Timeline' })).toBeVisible();
+
+  // Real alert-service references, ordered newest first.
+  await expect(page.getByText(/ALT-\d+/).first()).toBeVisible({ timeout: 60_000 });
+
+  // Freezing must announce itself — §2 Screen 5's "HISTORICAL — NOT LIVE" requirement.
+  await page.getByRole('button', { name: /Live-follow on/ }).click();
+  await expect(page.getByText(/HISTORICAL — NOT LIVE/)).toBeVisible();
+});
+
 test('AI Service Registry lists the real registry and admits it is mock inference', async ({
   page,
 }) => {

@@ -19,6 +19,7 @@ import { NotificationCenterPage } from '@/features/notifications/NotificationCen
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
 import { SensorHealthPage } from '@/features/sensors/SensorHealthPage';
+import { ThreatTimelinePage } from '@/features/timeline/ThreatTimelinePage';
 import { AiServicesPage } from '@/features/admin/ai-services/AiServicesPage';
 
 // MapLibre GL is ~200 KB gzip — far larger than the rest of the console. The map route is code-split
@@ -49,6 +50,7 @@ export default function App() {
               <Route path="/map" element={guard('map:read', <LazyRoute><MapPage /></LazyRoute>)} />
               <Route path="/tracks" element={guard('track:read', <TracksPage />)} />
               <Route path="/sensors" element={guard('sensor:read', <SensorHealthPage />)} />
+              <Route path="/timeline" element={guard('alert:read', <ThreatTimelinePage />)} />
               <Route path="/alerts" element={guard('alert:read', <AlertCenterPage />)} />
               <Route path="/incidents" element={guard('incident:read', <IncidentsPage />)} />
               <Route path="/reports" element={guard('report:read', <ReportsPage />)} />
