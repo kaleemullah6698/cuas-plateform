@@ -1,0 +1,54 @@
+# Pre-commit hooks — ARCHITECTURE.md §7.7, closing SECURITY-REVIEW finding SR-5.
+#
+# §7.7 asks for two layers of secret scanning, and until M12 only one existed. CI catching a secret
+# means it is already in history and already pushed: the commit has to be treated as compromised and
+# the credential rotated, whether or not the build went red. The pre-commit hook is the layer that
+# stops it being committed at all, which is the only one that prevents rather than reports.
+#
+# Install once per clone:
+#
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run across the whole repository (what CI effectively does):
+#
+#   pre-commit run --all-files
+#
+# The hook is intentionally narrow. Formatting and linting belong to the language toolchains
+# (`npm run lint`, Maven) and are gated in CI; duplicating them here would slow every commit for a
+# check that already runs. What belongs here is the class of mistake that is expensive precisely
+# because it is irreversible once pushed.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # A private key reaching the index is the same category of accident as a secret in a config
+      # file, and is not something gitleaks' rules always catch.
+      - id: detect-private-key
+
+      # The platform's own history has a case worth guarding: create-topics.sh silently failed with
+      # CRLF line endings — "set: pipefail: invalid option name" — and because the failing line was
+      # `set -euo pipefail` itself, `set -e` never took effect and only 27 of 43 topics were created,
+      # with an exit code of 0. .gitattributes fixes the checkout; this catches a file that arrives
+      # with mixed endings anyway.
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: '\.(bat|cmd)$'
+
+      - id: check-merge-conflict
+      - id: check-yaml
+        # Compose and the workflows use YAML merge keys and multi-document files.
+        args: [--allow-multiple-documents]
+        exclude: '^(docker-compose.*\.yml|infrastructure/monitoring/.*)$'
+      - id: check-json
+      - id: end-of-file-fixer
+        exclude: '^(contracts/generated/|.*\.svg$)'
+      - id: trailing-whitespace
+        exclude: '^(contracts/generated/|.*\.md$)'

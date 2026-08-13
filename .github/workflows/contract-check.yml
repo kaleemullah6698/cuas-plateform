@@ -1,13 +1,62 @@
-# Contract Check — ARCHITECTURE.md section 8.4.1
-# Placeholder workflow. Pipeline stages are specified in the architecture
-# document but not implemented here.
+# Contract Check — ARCHITECTURE.md §5.3, §6.2, §8.4
+#
+# The contracts are the platform's only cross-service coupling, so a breaking change to one is a
+# breaking change to every consumer at once. This gate is what makes §6.2's promise — that the AI
+# service contract is stable — a property of the build rather than an intention.
+#
+# `buf breaking` compares against `main`, so the check answers the question that matters on a pull
+# request: would merging this break somebody already on main? On main itself there is nothing to
+# compare against, so only lint and the generated-source build run.
+
 name: Contract Check
 
 on:
+  pull_request:
+    paths: ['contracts/**', '.github/workflows/contract-check.yml']
+  push:
+    branches: [main, develop]
+    paths: ['contracts/**', '.github/workflows/contract-check.yml']
   workflow_dispatch:
 
+concurrency:
+  group: contract-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
+  buf:
+    name: Lint + breaking-change gate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - run: echo "Contract Check not implemented"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # buf breaking needs the history it compares against
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Lint
+        working-directory: contracts
+        run: buf lint
+
+      - name: Fail on a breaking schema change
+        if: github.event_name == 'pull_request'
+        working-directory: contracts
+        run: buf breaking --against "https://github.com/${{ github.repository }}.git#branch=main,subdir=contracts"
+
+      # Generation is part of the gate: a schema that lints but does not generate is still broken,
+      # and every service compiles against the output.
+      - name: Generate
+        working-directory: contracts
+        run: buf generate
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      # The contracts module's own tests are the serde round-trips (§5.3) and the two guards that
+      # keep §0's advisory-only limit a property of the build: Recommendation must hold exactly the
+      # five §6.3.4 values, and EngagementAction exactly ENGAGEMENT_ACTION_NONE.
+      - name: Contract module tests
+        run: mvn -B -ntp -f backend/pom.xml -pl contracts -am test -Dbuf.skip=true

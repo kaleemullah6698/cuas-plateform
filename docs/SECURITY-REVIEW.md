@@ -15,7 +15,7 @@ what remains, so the remaining items are tracked rather than assumed.
 | Control | Status | Where / note |
 |---|---|---|
 | No secret in source control, image, or prod env var | **Implemented** | Passwords come from env vars locally; `docker-compose.yml` reads `${POSTGRES_PASSWORD}`, `${GRAFANA_PASSWORD}` etc. No secret is committed. |
-| `gitleaks` pre-commit + CI | **Partial** | CI workflows exist under `.github/workflows/`; a `gitleaks` step should be confirmed wired into each service pipeline. **Finding SR-1.** |
+| `gitleaks` pre-commit + CI | **Implemented (CI)** | `service-ci.yml` runs `gitleaks/gitleaks-action@v2` with `fetch-depth: 0`, so history is scanned rather than only the tip, and a hit fails the build. **SR-1 closed at M12.** The pre-commit half is still not wired — see SR-5. |
 | mTLS between services, 24 h certs, auto-rotation | **Deferred** | Inter-service gRPC (orchestrator, config `WatchConfig`) is authorised transport-level by design; the mTLS material and rotation are an ops/deployment concern (K8s overlay), not yet provisioned in the dev compose. **Finding SR-2.** |
 | TLS 1.3 AEAD only | **Deferred** | Terminated at the gateway/ingress in production; not enforced in the dev topology. |
 
@@ -81,10 +81,13 @@ what remains, so the remaining items are tracked rather than assumed.
 
 | # | Severity | Finding | Recommendation |
 |---|---|---|---|
-| SR-1 | Medium | `gitleaks` presence in each CI pipeline not confirmed in this pass. | Verify a `gitleaks` step gates every `.github/workflows/*-ci.yml`; fail the build on a hit. |
+| ~~SR-1~~ | ~~Medium~~ | **Closed at M12.** `gitleaks` now gates the backend pipeline over full history, alongside an OWASP dependency check (blocking on push, advisory on PR) and CodeQL. | — |
 | SR-2 | Medium | mTLS material + 24 h rotation not provisioned in the dev topology. | Provision workload certs in the K8s overlay (SPIFFE/cert-manager) before any non-dev deployment; the gRPC surfaces already assume transport-level auth. |
 | SR-3 | Low | Owner-scoping is enforced in application code, not Postgres RLS. | Add RLS policies on owner-bearing tables as defence in depth; application scoping stays the primary control. |
 | SR-4 | Low | ES ILM retention not yet active (reporting ES mirror deferred). | Wire the ILM policies when the reporting-service Elasticsearch adapter is promoted from the reportdb projection. |
+| SR-5 | Low | The `gitleaks` **pre-commit** hook §7.7 asks for is still not wired; only CI scans. | Add the hook so a secret is caught before it reaches history at all. CI catching it means it was already pushed, and a committed secret must then be treated as compromised and rotated regardless of whether the build went red. |
+| SR-6 | Low (by design) | The §6.7 conformance suites are `@pytest.mark.skip` scaffolds — but the deeper fact is that **there is no Track B service to test**. `ai-services/*/src/**` contains only empty `__init__.py` packages and the mock provider is `.gitkeep` files; no gRPC server or inference code exists in Python. | Not a defect to fix, and not closable by writing test bodies. This is M6's recorded decision: the boundary was built with the **Java** `MockInferenceProvider` inside ai-orchestrator (which *is* covered by that module's tests and was exercised live in M11), and the real services arrive later behind the same `InferenceProvider` port with no orchestration change (§6.1, §6.4). Promoting Track B is an architecture-amendment task, not a hardening one. `ai-service-ci.yml` is wired now so the suites gate the build the day an implementation lands. |
+| SR-7 | Low | No JaCoCo plugin is configured, so §8.4.1's 80% coverage gate cannot run. | Wire the plugin and agree the threshold; the CI workflow deliberately omits the gate rather than run a step that would fail for want of an execution. |
 
 ## Verdict
 

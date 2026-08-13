@@ -1,13 +1,223 @@
-# Backend Service CI — ARCHITECTURE.md section 8.4.1
-# Placeholder workflow. Pipeline stages are specified in the architecture
-# document but not implemented here.
+# Backend Service CI — ARCHITECTURE.md §8.4, §8.4.1
+#
+# Implements the §8.4 pipeline: lint/contract check → unit + integration tests → build → SAST and
+# dependency scan → container build → image scan. Replaces the placeholder that stood here until M12.
+#
+# Two deliberate departures from the §8.4.1 listing, both because the listing predates the layout it
+# describes. Neither changes what the pipeline does:
+#
+#   * Paths are `backend/**`, not `services/**`. The reactor lives in `backend/pom.xml` and modules
+#     are addressed by bare artifact id (`-f backend/pom.xml -pl auth-service`), not by path.
+#   * `buf generate` runs before any Maven step. `contracts/generated/java` is git-ignored build
+#     output, so a clean checkout does not have it and every module that imports a generated type
+#     fails to compile without it. Locally the same constraint is why the Dockerfiles pass
+#     `-Dbuf.skip=true` and require the bindings in the build context.
+#
+# The §8.4.1 JaCoCo coverage gate is **not** included: no JaCoCo plugin is configured in
+# `backend/pom.xml`, so `mvn jacoco:check` would fail every run for want of an execution rather than
+# for want of coverage. Wiring the plugin and choosing the threshold is a change to the build, and is
+# tracked as an M12 follow-on rather than smuggled in here.
+
 name: Backend Service CI
 
 on:
+  pull_request:
+    paths: ['backend/**', 'contracts/**', '.github/workflows/service-ci.yml']
+  push:
+    branches: [main, develop]
+    paths: ['backend/**', 'contracts/**', '.github/workflows/service-ci.yml']
   workflow_dispatch:
 
+env:
+  REGISTRY: ghcr.io
+  JAVA_VERSION: '21'
+
+concurrency:
+  group: service-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
+  # The whole reactor, once. The §8.4.1 listing fans out per changed service, which suits a repo of
+  # independently versioned services; here the seventeen modules share one reactor and one set of
+  # SNAPSHOT dependencies, so a per-service matrix would rebuild the shared modules n times and could
+  # still miss a break in a module the filter did not name.
+  build-test:
+    name: Build + test (17 modules)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - run: echo "Backend Service CI not implemented"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      # Must precede Maven: contracts/generated/java is git-ignored, so a clean checkout has none.
+      - name: Generate contract bindings
+        working-directory: contracts
+        run: buf generate
+
+      # Testcontainers needs a Docker daemon; ubuntu-latest runners provide one.
+      #
+      # -Pcoverage-gate activates the JaCoCo `check` goal (SECURITY-REVIEW SR-7). The floor lives in
+      # platform-parent's `coverage.line.minimum` and is a measured value, not §8.4.1's aspirational
+      # 80% — a gate nobody can pass is a gate somebody disables. It runs here rather than in every
+      # local build so the number can only be moved deliberately, and a change that drops coverage
+      # below the floor fails CI.
+      - name: Verify (with coverage gate)
+        run: mvn -B -ntp -f backend/pom.xml clean verify -Dbuf.skip=true -Pcoverage-gate
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-reports
+          path: '**/target/site/jacoco/**'
+          if-no-files-found: warn
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/**'
+          if-no-files-found: warn
+
+  # §7.7 and §8.4: no secret in source control, and a hit fails the build.
+  security-scan:
+    name: Secrets + dependency scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks scans history, not just the tip
+
+      # Closes SECURITY-REVIEW finding SR-1.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - uses: bufbuild/buf-setup-action@v1
+      - name: Generate contract bindings
+        working-directory: contracts
+        run: buf generate
+
+      # Advisory on a pull request, blocking on a push to a protected branch: a CVE published
+      # overnight should not block an unrelated PR, but it must not reach main unnoticed either.
+      - name: OWASP dependency check
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: >
+          mvn -B -ntp -f backend/pom.xml org.owasp:dependency-check-maven:check
+          -DfailBuildOnCVSS=7 -DskipTests -Dbuf.skip=true
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+      - uses: bufbuild/buf-setup-action@v1
+      - name: Generate contract bindings
+        working-directory: contracts
+        run: buf generate
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: java
+      - name: Compile for analysis
+        run: mvn -B -ntp -f backend/pom.xml clean compile -DskipTests -Dbuf.skip=true
+      - uses: github/codeql-action/analyze@v3
+
+  # Images are built and scanned on every push; they are pushed only from the protected branches.
+  containerize:
+    name: Image build + scan
+    needs: [build-test, security-scan]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - auth-service
+          - user-service
+          - sensor-ingestion
+          - sensor-simulator
+          - track-correlation
+          - ai-orchestrator
+          - threat-assessment
+          - alert-service
+          - notification-service
+          - reporting-service
+          - audit-service
+          - config-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+
+      # The Dockerfiles build with -Dbuf.skip=true and fail fast with a readable message if the
+      # bindings are absent, so they have to arrive through the build context.
+      - name: Generate contract bindings
+        working-directory: contracts
+        run: buf generate
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        run: echo "image=${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .                                    # repo root: the Dockerfiles use -f backend/pom.xml
+          file: backend/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the image
+        run: cosign sign --yes ${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}

@@ -26,6 +26,20 @@
     <buf.executable>buf</buf.executable>
     <!-- Set -Dbuf.skip=true to compile already-generated sources without re-running buf. -->
     <buf.skip>false</buf.skip>
+
+    <!--
+      No coverage measurement here (SECURITY-REVIEW SR-7). Almost every line in this module is
+      generated Protobuf: builders, parsers and enum plumbing that buf produced and nobody wrote.
+      Measured, it reports ~29% line coverage, and that number means nothing — it is a statement
+      about how much generated code the serde tests happen to touch, not about how well this module
+      is tested. Left in, it would be the platform's lowest figure and would set the floor for
+      everything else.
+
+      What actually matters here is tested and cannot regress silently: the serde round-trips, and
+      the two guards that make §0's advisory-only limit a property of the build — Recommendation must
+      hold exactly the five §6.3.4 values and EngagementAction exactly ENGAGEMENT_ACTION_NONE.
+    -->
+    <jacoco.skip>true</jacoco.skip>
   </properties>
 
   <dependencies>

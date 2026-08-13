@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useRef } from 'react';
+import { createContext, type ReactNode, useContext, useState } from 'react';
 import { Realtime } from '@/realtime/Realtime';
 
 const RealtimeContext = createContext<Realtime | null>(null);
@@ -15,8 +15,12 @@ export function RealtimeProvider({
   children: ReactNode;
   realtime?: Realtime;
 }) {
-  const ref = useRef<Realtime>(realtime ?? new Realtime());
-  return <RealtimeContext.Provider value={ref.current}>{children}</RealtimeContext.Provider>;
+  // Lazy state initialiser rather than a ref: exactly one Realtime per provider either way, but the
+  // instance is created once during the first render instead of being read back out of a ref on
+  // every render. `useState`'s initialiser runs once and the setter is never called, so this is a
+  // constant for the provider's lifetime.
+  const [instance] = useState<Realtime>(() => realtime ?? new Realtime());
+  return <RealtimeContext.Provider value={instance}>{children}</RealtimeContext.Provider>;
 }
 
 export function useRealtime(): Realtime {

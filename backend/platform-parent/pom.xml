@@ -24,6 +24,21 @@
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
+    <!--
+      Per-module line-coverage floor for the `coverage-gate` profile (SR-7).
+
+      Measured, not chosen. At the time it was set the seventeen modules ran from 40.7%
+      (alert-service) to 90.2% (api-gateway), with a median near 76%; `contracts` is excluded in its
+      own POM because its ~29% is a statement about generated Protobuf, not about testing. 0.40 sits
+      just under the real floor, so the gate passes today and any module that drops below the worst
+      current module fails CI.
+
+      This is deliberately not ARCHITECTURE.md §8.4.1's aspirational 80%: five modules would fail it
+      immediately, and a gate nobody can pass is a gate somebody disables. It is a ratchet — raise it
+      as coverage improves, and lowering it should require saying why in the commit message.
+    -->
+    <coverage.line.minimum>0.40</coverage.line.minimum>
+
     <grpc.version>1.69.0</grpc.version>
     <!--
       Spring Cloud 2024.0.x is the release train paired with Spring Boot 3.4.x. Only the
@@ -157,5 +172,92 @@
         </plugin>
       </plugins>
     </pluginManagement>
+
+    <plugins>
+      <!--
+        Coverage measurement, inherited by every module (SECURITY-REVIEW finding SR-7).
+
+        The version was declared in pluginManagement from the start but the plugin was never bound to
+        a phase, so no execution existed and nothing was ever measured. ARCHITECTURE.md section 8.4.1
+        specifies a coverage gate in CI; a gate needs a number, and a number needs an agent.
+
+        `prepare-agent` sets the argLine surefire runs with, and `report` writes
+        target/site/jacoco/jacoco.xml per module. The `check` goal is deliberately NOT bound here —
+        see the `coverage-gate` profile below.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
   </build>
+
+  <profiles>
+    <!--
+      The coverage gate, opt-in via `-Pcoverage-gate`.
+
+      Kept behind a profile rather than bound to every build for one reason: the threshold below is
+      the measured floor of this codebase, not section 8.4.1's aspirational 80%, and a gate that
+      fails an ordinary local `mvn verify` would be turned off within a day. CI runs it explicitly so
+      the number can only move upwards — a change that drops coverage below the floor fails there.
+
+      The floor is set from an actual measurement rather than chosen: raising it is a deliberate act,
+      and lowering it should require explaining why in a commit message.
+    -->
+    <profile>
+      <id>coverage-gate</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>check</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <rule>
+                      <element>BUNDLE</element>
+                      <limits>
+                        <limit>
+                          <counter>LINE</counter>
+                          <value>COVEREDRATIO</value>
+                          <minimum>${coverage.line.minimum}</minimum>
+                        </limit>
+                      </limits>
+                    </rule>
+                  </rules>
+                  <!--
+                    Modules with nothing meaningful to cover: `contracts` is generated Protobuf plus
+                    serde round-trips, and `sensor-simulator` is a development adapter. Neither
+                    should be able to drag the platform's floor up or down.
+                  -->
+                  <haltOnFailure>true</haltOnFailure>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

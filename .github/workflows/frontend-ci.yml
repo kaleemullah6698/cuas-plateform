@@ -1,13 +1,95 @@
-# Frontend CI — ARCHITECTURE.md section 8.4
-# Placeholder workflow. Pipeline stages are specified in the architecture
-# document but not implemented here.
+# Frontend CI — ARCHITECTURE.md §3.6, §3.7, §8.4
+#
+# The frontend is a separate npm project under `frontend/` and is **not** in the Maven reactor, so
+# `mvn clean verify` does not cover any of it. This workflow is the only automated gate it has.
+#
+# The E2E job runs the M9 spec, which mocks the login REST and the WebSocket in the page and so needs
+# no backend. The M11 live spec (`frontend/e2e-live/`) is deliberately **not** run here: it only
+# passes with the whole stack up, and it signs in for real, which the §7.8 login rate limit
+# (10/hour per account) makes unsuitable for a per-push pipeline. It belongs to the deploy-time smoke
+# stage of §8.4, against a running environment.
+
 name: Frontend CI
 
 on:
+  pull_request:
+    paths: ['frontend/**', '.github/workflows/frontend-ci.yml']
+  push:
+    branches: [main, develop]
+    paths: ['frontend/**', '.github/workflows/frontend-ci.yml']
   workflow_dispatch:
 
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: frontend
+
 jobs:
-  placeholder:
+  verify:
+    name: Lint + typecheck + tests + build
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - run: echo "Frontend CI not implemented"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # `strict: true` and no `any` (§3.3) are only worth anything if something checks them.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  e2e:
+    name: E2E (mocked edge)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts starts the dev server itself via its `webServer` block.
+      - name: Playwright
+        run: npm run test:e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore

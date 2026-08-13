@@ -1,13 +1,115 @@
-# AI Service CI — ARCHITECTURE.md section 8.4.2
-# Placeholder workflow. Pipeline stages are specified in the architecture
-# document but not implemented here.
+# AI Service CI — ARCHITECTURE.md §6.2, §6.7, §8.4.2
+#
+# §6.7's conformance suite is the gate that lets a Track B service integrate with Track A without
+# negotiation: the identical file runs against every AI service and against the mock provider, and
+# passing it is the whole contract.
+#
+# **What this workflow proves today, stated plainly — and what it cannot.**
+#
+# There is no Track B service to test. `ai-services/*/src/**` contains empty `__init__.py` packages
+# and nothing else; no gRPC server, no inference code. That is M6's recorded decision, not an
+# oversight: the AI boundary was built and proved with the **Java** `MockInferenceProvider` inside
+# ai-orchestrator, and the real services arrive later behind the same `InferenceProvider` port with
+# no orchestration change (§6.1, §6.4). The §6.7 suites here are correspondingly scaffolds — every
+# test is `@pytest.mark.skip` over an unimplemented body.
+#
+# So this job proves that each service's declared dependencies resolve, that the contract bindings
+# generate, and that the suite collects. It does **not** prove any of the five §6.2 contract rules,
+# and it must not be read as if it did (SECURITY-REVIEW SR-6). It is wired now so the suites gate the
+# build on the day an implementation lands, rather than needing CI work as well at that point.
+#
+# `--strict-markers` and an explicit collection check keep the job from degenerating into a green
+# tick over an empty suite: a file that stops collecting fails here rather than passing quietly.
+# `mock-inference-provider` is absent from the matrix because its `tests/` directory holds only a
+# `.gitkeep` — a job asserting "no tests collected is an error" would fail on it every run, for a
+# reason that is true and already recorded rather than actionable.
+#
+# §8.4.2's `model-validation` job is **not** included. It requires a `[self-hosted, gpu]` runner and
+# `training/evaluate.py` against a held-out split; the three trained models are external Kaggle
+# notebooks (§6.3) and are deliberately not integrated. Adding a job that cannot run would be worse
+# than not having one.
+
 name: AI Service CI
 
 on:
+  pull_request:
+    paths: ['ai-services/**', 'contracts/**', '.github/workflows/ai-service-ci.yml']
+  push:
+    branches: [main, develop]
+    paths: ['ai-services/**', 'contracts/**', '.github/workflows/ai-service-ci.yml']
   workflow_dispatch:
 
+concurrency:
+  group: ai-service-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
+  conformance:
+    name: Conformance — ${{ matrix.service }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - rf-classifier
+          - vision-detector
+          - radar-rf-fusion
+          - threat-scorer
+          - acoustic-classifier
+          - gnss-anomaly
     steps:
-      - run: echo "AI Service CI not implemented"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ai-services/${{ matrix.service }}/requirements.txt
+
+      # Runtime dependencies only. requirements-training.txt is excluded from the runtime image by
+      # §6.7 and has no business in the conformance job either.
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "ai-services/${{ matrix.service }}/requirements.txt" ]; then
+            pip install -r "ai-services/${{ matrix.service }}/requirements.txt"
+          fi
+          pip install pytest
+
+      - name: Generate Python bindings from the contracts
+        run: |
+          mkdir -p build/pygen
+          python -m grpc_tools.protoc -I contracts/proto \
+            --python_out=build/pygen --grpc_python_out=build/pygen \
+            $(find contracts/proto -name '*.proto')
+
+      - name: Conformance suite
+        working-directory: ai-services/${{ matrix.service }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build/pygen
+        run: |
+          if [ ! -d tests ]; then
+            echo "::error::ai-services/${{ matrix.service }}/tests is missing — the §6.7 suite is mandatory"
+            exit 1
+          fi
+          # Collection must succeed and must find tests. An empty or uncollectable suite is a
+          # failure, not a pass: pytest exits 5 on "no tests collected", which we surface as an error.
+          pytest tests/ --strict-markers -v -rs
+          status=$?
+          if [ "$status" -eq 5 ]; then
+            echo "::error::no tests collected for ${{ matrix.service }}"
+            exit 1
+          fi
+          exit "$status"
+
+  # An image-build-and-publish job is deliberately absent, and its absence is the honest position.
+  #
+  # The Dockerfiles would build: they copy `src/` and `requirements.txt`, both of which exist. The
+  # resulting image would then fail the moment it started, because its CMD names a module
+  # (`src.rf_classifier.main`) that no file defines. Publishing a signed, scanned, green-ticked image
+  # of a service that cannot start is worse than publishing nothing — it puts an artifact in the
+  # registry that every downstream signal says is good.
+  #
+  # This job returns when Track B is implemented, alongside the conformance bodies. Backend service
+  # images are built, scanned and signed today in service-ci.yml, where the services are real.
