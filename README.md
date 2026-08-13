@@ -10,9 +10,24 @@ Software integration layer between counter-UAS detection hardware and engagement
 
 ---
 
-## Status: scaffold
+## Status: locally verified / production deployment hardening pending
 
-This repository currently contains **structure only**. No business logic, endpoints, entities, persistence, messaging, authentication, AI models, or UI screens are implemented.
+The platform is **built, assembled and driven end to end on a development host**. Milestones M0–M11
+and M12.A are complete. Frozen at commit `e611a9f`.
+
+Verified at that commit, by running it: **17 modules, 944 backend tests, 0 failures**; frontend
+**69 tests**, `tsc` and lint clean; **16 containers healthy**; backup and restore of all ten
+databases with the audit hash chain verified **intact** afterwards; and the **live operator journey**
+— a real browser, a real login, and a real WebSocket carrying a real track and alert, with no mocks.
+
+> **It is not production-ready, and must not be described as such.** Five requirements remain
+> unimplemented and unverified: **mTLS between services, secrets management, load and stress
+> validation, Postgres RLS / Elasticsearch ILM, and deployment/DR**. Every inter-service gRPC hop is
+> currently plaintext, credentials come from `.env`, and there is no evidence at all about behaviour
+> under load. No production-readiness claim should be made until each is implemented *and* verified.
+
+**Start here:** [`docs/HANDOFF.md`](docs/HANDOFF.md) — the verified state, the deferred list, and the
+recommended next steps. [`docs/OPERATIONS.md`](docs/OPERATIONS.md) is the runbook.
 
 `docs/ARCHITECTURE.md` is the single source of truth. Every directory here traces to a section of it.
 
@@ -22,9 +37,10 @@ This repository currently contains **structure only**. No business logic, endpoi
 
 ```
 cuas-platform/
-├── backend/            12 Spring Boot services + parent POM + shared commons
+├── backend/            13 Spring Boot services + contracts + parent POM + shared commons (17 modules)
 ├── frontend/           React 19 + TypeScript + Vite operator console
-├── ai-services/        6 Python inference services + mock provider
+├── ai-services/        6 Python inference service scaffolds + mock provider — NOT implemented;
+│                       the working provider is the Java MockInferenceProvider in ai-orchestrator
 ├── contracts/          Protobuf definitions — the cross-track contract
 ├── infrastructure/     Docker, K8s, Postgres, Kafka, Redis, ES, monitoring
 ├── docker/             Shared Docker assets
