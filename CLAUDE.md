@@ -156,7 +156,10 @@ Detailed procedures live in `.claude/skills/`. Invoke by name when the task matc
 
 ## 8. Project state
 
-**M0–M11 complete; M12 next (production readiness).** Backend: full `mvn clean verify`
+**M0–M11 complete; M12.A complete — the platform is NOT production-ready and must not be described
+as such.** What M12.A delivered is real and verified (see below); what separates this from production
+is mTLS between services, a secrets backend, and any evidence at all about behaviour under load.
+Those are listed under "M12 remaining" in `docs/ROADMAP.md` and none of them was attempted. Backend: full `mvn clean verify`
 green — **17 modules, 933 tests, 0 failures, BUILD SUCCESS**. Frontend (`frontend/`, its own npm build):
 **69 Vitest tests + 1 Playwright E2E**, `tsc`/`vite build` clean (map route code-split so MapLibre loads
 on demand — initial bundle 179 KB gzip). Infra verified live (`scripts/verify-infra.sh`: 33). See
@@ -206,6 +209,29 @@ unclassified while it is open (§6.5 degradation — tracks/scores/alerts unaffe
 replay drops below `required-consecutive-sweeps` and yields no tracks at all. `LOGIN_PER_ACCOUNT` is
 10/hour burst 3 (§7.8) and genuinely bites repeated runs — never probe it, the probe is itself a
 login. Build with `COMPOSE_PARALLEL_LIMIT=2`: the engine died twice under concurrent builds.
+
+**M12.A — pipeline, reliability, operational surface** ✅. **CI/CD was four placeholder files that
+echoed "not implemented"** — a repo that looked gated and was not. All four are real now
+(`service-ci` runs buf generate → 17-module verify with the coverage gate → gitleaks → OWASP →
+CodeQL → 13 image builds → Trivy → cosign; paths are `backend/**`, and `buf generate` precedes every
+Maven step because `contracts/generated` is git-ignored). **ESLint had never had a config file**, so
+`npm run lint` failed outright and §8.4's first stage had never run: added, 0 errors/13 warnings.
+**Coverage was never measured** — JaCoCo's version sat in `pluginManagement` unbound; the floor is now
+**0.40**, measured (40.7% alert-service → 90.2% api-gateway, `contracts` excluded as generated
+Protobuf), not §8.4.1's aspirational 80% which five modules would fail. **Only infra had healthchecks**,
+so `service_healthy` meant nothing for the twelve services; all now probe their own readiness group —
+16 healthy. **The platform saturated Postgres**: eleven services × Hikari's default pool of 10 against
+`max_connections=100` meant `pg_dump` and even a superuser `psql` were refused — a platform that
+cannot be backed up while running is not production-ready. Pools capped at 6, ceiling 200, use fell to
+26. **backup.sh/restore.sh both actually run** (ten per-database dumps + MinIO; a single-database
+restore verified), and the audit hash chain verified **`intact: true`, 109 records** afterwards — the
+one failure nothing else would report. `docs/OPERATIONS.md` is the runbook.
+**Findings:** SR-1, SR-5, SR-7 closed. **SR-6 corrected, not closed** — the gap is not unwritten test
+bodies but that **there is no Track B service to test** (`ai-services/*/src/**` is empty
+`__init__.py` packages; the mock provider is `.gitkeep`). That is M6's decision — the boundary was
+proved with the **Java** `MockInferenceProvider` — so promoting Track B is an architecture amendment.
+The AI image-publish job was removed with it: those images build but their `CMD` names a module no
+file defines. New: **SR-8**, an unsupported HTTP verb renders 500 rather than 405.
 
 > **Before building images:** run `buf generate` in `contracts/`. The Dockerfiles build with
 > `-Dbuf.skip=true` (no `buf` in the maven image), so the bindings must arrive in the build context;

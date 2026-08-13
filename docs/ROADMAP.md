@@ -1307,6 +1307,108 @@ lost, and `threat.recommendation.generated` carrying `RECOMMEND_OPERATOR_REVIEW`
 
 Objective: make it deployable and demonstrate engineering maturity. Deliverables span **security** (mTLS + 24 h cert rotation §7.2, secrets/Vault §7.7, `gitleaks` in CI, OWASP review, rate-limit validation — closing SECURITY-REVIEW SR-1/SR-2 and the ES ILM SR-4), **performance** (load/stress to the §1.x track ceilings, 10k-track soak, memory/CPU profiling against the §3.7 budgets), **observability** (the M8.D Prometheus/Grafana/Loki/Tempo stack exercised under load, alert-rule tuning, trace continuity), **reliability** (backup/restore, failover, DR, health checks, rolling restart), **documentation** (deployment/operations/administrator/developer guides, runbooks, architecture diagrams), and **CI/CD** (GitHub Actions building/scanning/deploying, versioning and a release process). Dependencies: M11.
 
+### M12.A — pipeline, reliability and the operational surface — ✅ **Complete**
+
+The hardening that could be built and *verified* on the development host. What could not be — and
+why — is stated in "M12 remaining" below rather than dressed up.
+
+**CI/CD was four files that echoed "not implemented".** §8.4 specifies the pipeline in detail and the
+workflows existed as placeholders, which is the worst of both worlds: a repository that looks gated
+and is not. All four are now real — `service-ci` (buf generate → 17-module `verify` with the coverage
+gate → gitleaks → OWASP → CodeQL → 13 image builds → Trivy → cosign), `contract-check` (lint,
+`buf breaking` against main, and the contract tests that keep §0's advisory-only limit a build
+property), `frontend-ci` (lint, typecheck, tests, build, mocked-edge E2E) and `ai-service-ci`.
+
+Two departures from the §8.4.1 listing, both because it predates the layout it describes: paths are
+`backend/**` rather than `services/**`, and `buf generate` precedes every Maven step because
+`contracts/generated` is git-ignored and a clean checkout does not have it.
+
+**ESLint had never had a configuration file.** `npm run lint` was wired in `package.json` from the
+start and failed outright — "ESLint couldn't find an eslint.config.js" — so §8.4's first pipeline
+stage had never run on this project. Added: 0 errors, 13 warnings. Two real defects fell out (a ref
+read during render in `RealtimeContext`, a stale triple-slash directive); three warnings are left
+visible where the plugin's new compiler-era rules disagree with patterns §3.4 requires — the
+imperative map outside React, and the external stores' reset — rather than rewriting M10/M11-verified
+streaming code to satisfy a linter.
+
+**Coverage was never measured.** JaCoCo's version was declared in `pluginManagement` but the plugin
+was never bound to a phase, so §8.4.1's coverage gate had nothing to gate on. The agent and report now
+run for every module. The floor is **0.40**, and it is a measurement rather than an aspiration: the
+modules ran 40.7% (alert-service) to 90.2% (api-gateway), median near 76%, with `contracts` excluded
+because its ~29% describes generated Protobuf and not testing. §8.4.1's 80% would fail five modules
+immediately, and a gate nobody can pass is a gate somebody disables. Enforced in CI via
+`-Pcoverage-gate` so the number can only move deliberately.
+
+**Only infrastructure had healthchecks.** Every Track A service reported "Up" — true the instant the
+JVM starts, and long before Spring has a context, Flyway has migrated or a consumer holds a partition.
+`depends_on: {condition: service_healthy}` and any notion of a rolling restart were therefore
+meaningless for the twelve services and meaningful only for Postgres. All twelve now probe their own
+Spring readiness group and grep for `UP`, so a 200 carrying `{"status":"DOWN"}` fails. Verified: **16
+healthy**.
+
+**The platform saturated Postgres, and an operator noticed before a service did.** Eleven services
+each held HikariCP's default maximum pool of 10 against Postgres's default `max_connections` of 100.
+`pg_dump` failed with `FATAL: sorry, too many clients already`, and so did a superuser `psql` — the
+reserved slots were gone too. **A platform that cannot be backed up or inspected while it is running
+is not production-ready**, and the failure surfaces under load rather than at startup. Pools are
+capped at 6 and the ceiling raised to 200; measured use fell from saturation to 26.
+
+**Backup and restore, both actually run.** `scripts/backup.sh` dumps the ten databases separately —
+database-per-service is absolute (§2), and an all-or-nothing restore would make recovering one
+service impossible without touching the other nine — plus the MinIO store holding report artifacts
+and evidence bundles. `scripts/restore.sh` is destructive by design and refuses without an explicit
+confirmation. Both were exercised: ten dumps with real content, then a single-database restore
+(`configdb`) with the service still healthy afterwards.
+
+The check that matters after a restore is the audit hash chain, because a corrupt `auditdb` is the
+one failure **nothing else in the platform will report**. Verified live: `intact: true`, 109 records,
+no broken link. Doing it surfaced one small defect — an unsupported HTTP verb renders as 500 rather
+than 405 (**SR-8**), found because the runbook first said `GET` where the endpoint is `POST`.
+
+**`docs/OPERATIONS.md`** is the runbook: start-up, the three levels of verification, backup and
+restore, rolling restarts, and a table of the failures that *actually happened* during M11 with what
+each symptom really meant. Most of them produced no ERROR line at all, which is the point of writing
+them down.
+
+**Findings.** SR-1 (gitleaks in CI) and SR-7 (coverage gate) are closed. SR-5 is closed — the
+pre-commit half §7.7 asks for now exists, and it matters because CI catching a secret means it is
+already pushed and must be rotated regardless. **SR-6 was corrected rather than closed**: the gap is
+not unwritten test bodies but that there is no Track B service to test — `ai-services/*/src/**`
+contains empty `__init__.py` packages and the mock provider is `.gitkeep`. That is M6's recorded
+decision (the boundary was built and proved with the **Java** `MockInferenceProvider`), so promoting
+Track B is an architecture amendment, not hardening. The AI image-publish job was removed with it:
+those Dockerfiles build, but the resulting image's `CMD` names a module no file defines, and a
+signed, scanned, green-ticked image of a service that cannot start is worse than no image at all.
+
+### M12 remaining — not started, and honestly so
+
+None of the following was attempted. Each needs something this development host does not have, and
+claiming otherwise would make the rest of this document less trustworthy.
+
+- **mTLS between services with 24 h certs and rotation (§7.2, SR-2).** Needs cert-manager or SPIFFE
+  in a real cluster. The gRPC surfaces already assume transport-level authentication, so this is
+  provisioning, not redesign — but it is provisioning that cannot be done in `docker compose`.
+- **Secrets manager (§7.7).** Local runs use `.env`, which is what the document prescribes for
+  development. A production secrets backend is untouched.
+- **Load and stress to the §1.x ceilings, and the 10k-track soak.** The engine here is 7.4 GB and
+  died twice under concurrent image builds; a 10k-track soak is not a thing this machine can host,
+  and a number produced on it would be misleading rather than useful.
+- **The observability stack exercised under load.** It is version-controlled IaC from M8.D and comes
+  up, but no alert rule has been tuned against real load and no trace has been followed end to end.
+- **Postgres RLS (SR-3)** and **Elasticsearch ILM (SR-4)** remain as recorded at M8.D.
+- **Failover and DR beyond backup/restore.** Single-node Postgres, single-broker Kafka. Backup and
+  restore work; there is no replica to fail over to and no test of losing one.
+- **Deployment to any environment, and the deploy/rollback half of §8.4's pipeline.** The workflows
+  build, scan and sign images; nothing deploys them, and `docker-compose.ci.yml` does not exist.
+- **§6.7 conformance bodies and Track B services (SR-6)**, per the decision recorded above.
+
+**Verdict on production readiness.** The platform is **not production-ready, and is not claimed to
+be.** It is a verified, reproducible local system with a real pipeline, real coverage measurement,
+real health signals, and a tested backup and restore. What separates it from production is the list
+above — chiefly transport security between services, a secrets backend, and any evidence at all about
+behaviour under load. Those are the honest gaps, and none of them is closed by more work on this
+host.
+
 ---
 
 # Phase 3 — Backend-First Confirmation

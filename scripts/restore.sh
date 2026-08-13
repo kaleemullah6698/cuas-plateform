@@ -120,8 +120,10 @@ echo
 echo "     docker compose --profile platform up -d"
 echo "     bash scripts/verify-platform.sh"
 echo
-echo "   and, authenticated as a user holding audit:verify (§7.4):"
-echo "     GET /api/v1/audit/verify   -> expect a valid chain, no first-broken-link"
+echo "   and, authenticated as a user holding audit:verify (§7.4) — POST, not GET:"
+echo "     curl -X POST -H \"Authorization: Bearer \$TOKEN\" \\"
+echo "          http://localhost:8080/api/v1/audit/verify"
+echo "     -> expect {\"intact\":true, ..., \"brokenAtSeq\":null}"
 
 echo
 echo "======================================================="

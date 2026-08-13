@@ -235,6 +235,35 @@ the browser uses:
 bash scripts/verify-platform.sh
 ```
 
+**Operating the platform** — start-up, verification levels, backup and restore, rolling restarts, and
+a table of the failures that actually happened with what each symptom really meant:
+[`docs/OPERATIONS.md`](OPERATIONS.md).
+
+**Backup and restore (M12):**
+
+```bash
+bash scripts/backup.sh                                # -> backups/<UTC timestamp>/
+bash scripts/restore.sh backups/<timestamp> configdb  # one service, or omit for all
+```
+
+**Secret scanning before commit (M12, §7.7):**
+
+```bash
+pip install pre-commit && pre-commit install
+```
+
+CI scans too, but a secret CI catches is already pushed and must be rotated regardless — the hook is
+the layer that prevents rather than reports.
+
+**Coverage:**
+
+```bash
+mvn -f backend/pom.xml clean verify -Dbuf.skip=true -Pcoverage-gate
+```
+
+The gate is opt-in so an ordinary local `verify` is not blocked by it; CI always runs it. The floor
+(`coverage.line.minimum`, 0.40) is measured, not aspirational — see ROADMAP M12.A.
+
 **Live operator journey (M11.B).** The acceptance run above proves the platform *answers*. This one
 proves an operator can *use* it: it drives the built SPA the `web` container serves, in Chromium,
 with **no mocked login and no mocked WebSocket**, and replays a real intrusion while the browser is

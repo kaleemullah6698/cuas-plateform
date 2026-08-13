@@ -95,12 +95,22 @@ first (`docker compose --profile platform stop`), restore, then start and verify
 ### The check that matters after a restore
 
 ```bash
-GET /api/v1/audit/verify        # requires audit:verify (§7.4)
+# POST, not GET — verification is a recorded operation, not a read.
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+     http://localhost:8080/api/v1/audit/verify
+```
+
+A healthy chain answers:
+
+```json
+{"intact":true,"recordsVerified":109,"headHash":"27406a1f…","brokenAtSeq":null,"reason":null}
 ```
 
 The audit log is a tamper-evident hash chain (§4.1.11). A restored `auditdb` that fails verification
 means the backup is corrupt — and **nothing else in the platform will tell you that**. The UI renders
 a broken chain as a full-width, non-dismissible critical banner naming the first broken link.
+
+Verified after a real restore during M12: `intact: true`, 109 records, no broken link.
 
 ---
 
