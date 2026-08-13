@@ -52,6 +52,26 @@ docker compose exec kafka bash /scripts/create-topics.sh
 
 ---
 
+## A2. Serving the console — read this, it changed
+
+The **Sensor Health** and **AI Services** screens were added after the `web` image was last built, so
+**the container does not contain them**. Serve the console from the dev server instead. This is also
+the safer path on this host: rebuilding `web` runs `npm ci` + `vite build`, the heaviest operation in
+the repository, and it has repeatedly exhausted the Docker engine.
+
+```bash
+docker compose stop web
+VITE_API_BASE_URL=http://localhost:8080 npm --prefix frontend run dev
+```
+
+Vite takes port **3000**, so the gateway's CORS allowlist (`http://localhost:3000`) and its WebSocket
+origin check both still pass **unchanged** — no security control is relaxed to make this work.
+`config.ts` supports `VITE_API_BASE_URL` by design (§3.1), so this is a documented deployment
+override, not a workaround.
+
+Leave it running alongside the simulator. To go back to the container path later, rebuild the image
+(`docker compose build web`) and `docker compose up -d web`.
+
 ## B. Login
 
 **http://localhost:3000** — sign in as **`admin`** with the password from `.env`.
@@ -114,6 +134,8 @@ never collides with the intake's `(sensorId, sensorSeq)` dedup window.
 |---|---|---|
 | **Dashboard** | Non-zero **ACTIVE TRACKS**, **LIVE ALERTS**, **SENSORS ONLINE**, **HIGHEST THREAT** | Gateway's live view, fed by `track.*` / `alert.raised` / `sensor.health` Kafka topics over the WebSocket |
 | **Tracks** | Threat-sorted triage queue; `J`/`K` to move, `Enter` to select. Right panel: identity, telemetry, velocity/altitude sparklines | `track.created` / `track.updated` from track-correlation, ~45/min. Sparklines are accumulated client-side from observed values — not fabricated history |
+| **Sensor Health** | Impaired sensors sort first; online/degraded/offline tally; last-seen UTC and age | The `sensors` WebSocket channel — the same feed as the dashboard tile. sensor-ingestion derives status from `online-within` (30 s) / `degraded-within` (2 m). The **Age** column is the number the status is computed from |
+| **AI Services** | The registry: modalities, mode, timeout budget, max concurrent, health, canary | ai-orchestrator's admin API (`ai:configure`). Routing is by **modality**, never by service identity (§6.1) — a test fails the build if a model or framework name appears in orchestrator source. The banner states plainly that inference is **mock**, and the model column reads `0.0.0-mock` |
 | **Live Map** | Tracks plotted with heading vectors and trails, styled by severity; critical/high never clustered | Same live track stream, pushed to MapLibre at the §2.5.1 10 Hz budget |
 | **Alerts** | Three buckets; real `ALT-nnnn` references; open one | `alert.raised` from alert-service, ~45/min, raised when a threat score crosses §6.3.4's MEDIUM floor |
 | **Incidents** | Declare an incident from an alert; timeline, notes, evidence, decision chain | alert-service incident API |
@@ -183,7 +205,12 @@ Allow ~60 s for the gateway to become healthy again.
 - **Nothing deploys.** CI builds, scans and signs images; the deploy half of §8.4 does not exist.
 - **Track B AI services are empty scaffolds.** `ai-services/*/src/**` contains only `__init__.py`;
   the working provider is the **Java** `MockInferenceProvider` inside ai-orchestrator. Classifications
-  shown are mock inference, and the console labels them as such.
+  shown are mock inference, and the **AI Services** screen says so on its face.
+- **AI Services is read-only.** Screen 11 also specifies *editing* AI endpoints and model versions.
+  The registry is a deployment's own configuration (§6.1) and editing it from the console would
+  create a second source of truth over inference routing, so this screen shows and does not change.
+- **Screen 5 — Threat Timeline is not built.** `features/timeline/` is still a scaffold. It needs a
+  historical query the other screens do not, and was deliberately deferred rather than rushed.
 - **`threat-assessment` has an open duplicate-key race** — concurrent `track.updated` for one track
   produces `duplicate key ... threat_scores_pkey`. It self-heals (the consumer retries and scores keep
   flowing) but that write should be an upsert. **Found and documented, not fixed** — the fix needs an

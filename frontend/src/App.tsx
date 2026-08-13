@@ -18,6 +18,8 @@ import { AuditPage } from '@/features/audit/AuditPage';
 import { NotificationCenterPage } from '@/features/notifications/NotificationCenterPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/profile/ProfilePage';
+import { SensorHealthPage } from '@/features/sensors/SensorHealthPage';
+import { AiServicesPage } from '@/features/admin/ai-services/AiServicesPage';
 
 // MapLibre GL is ~200 KB gzip — far larger than the rest of the console. The map route is code-split
 // so that weight loads only when an operator opens the map, keeping the initial bundle within the §3.6
@@ -46,10 +48,12 @@ export default function App() {
               <Route path="/dashboard" element={guard(null, <DashboardPage />)} />
               <Route path="/map" element={guard('map:read', <LazyRoute><MapPage /></LazyRoute>)} />
               <Route path="/tracks" element={guard('track:read', <TracksPage />)} />
+              <Route path="/sensors" element={guard('sensor:read', <SensorHealthPage />)} />
               <Route path="/alerts" element={guard('alert:read', <AlertCenterPage />)} />
               <Route path="/incidents" element={guard('incident:read', <IncidentsPage />)} />
               <Route path="/reports" element={guard('report:read', <ReportsPage />)} />
               <Route path="/config" element={guard('policy:read', <ConfigPage />)} />
+              <Route path="/ai-services" element={guard('ai:configure', <AiServicesPage />)} />
               <Route path="/users" element={guard('user:read', <UsersPage />)} />
               <Route path="/audit" element={guard('audit:read', <AuditPage />)} />
               <Route path="/notifications" element={guard(null, <NotificationCenterPage />)} />
