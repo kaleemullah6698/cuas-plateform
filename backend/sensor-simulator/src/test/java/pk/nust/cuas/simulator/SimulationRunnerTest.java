@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -43,7 +44,7 @@ class SimulationRunnerTest {
     private SimulationProperties properties(Transport transport, int sensors, int perSensor,
                                             String runLabel) {
         return new SimulationProperties("http://x", "localhost", 9083, transport, sensors, perSensor,
-                50, false, runLabel);
+                50, false, runLabel, false, Duration.ofSeconds(5));
     }
 
     private SimulationRunner runner(SimulationProperties properties, IngestClient... clients) {
@@ -105,6 +106,80 @@ class SimulationRunnerTest {
         ArgumentCaptor<List<DetectionRecord>> sent = ArgumentCaptor.forClass(List.class);
         verify(restClient).send(sent.capture());
         assertThat(sent.getValue().get(0).getSensorId()).isEqualTo("sim-rf-0");
+    }
+
+    /**
+     * The property that makes continuous emission work at all. sensor-ingestion deduplicates on
+     * {@code (sensorId, sensorSeq)} (§4.1.4), so repeating a cycle with the ids fixed and the
+     * sequence restarting at 1 would be a redelivery and would be discarded in full — which is
+     * exactly what happened to every replay after the first before the run label existed. A rising
+     * sequence keeps the ids stable *and* stays clear of the dedup window, which is what a real
+     * sensor does.
+     */
+    @Test
+    void consecutiveCyclesKeepSensorIdsAndAdvanceSequenceNumbers() {
+        when(restClient.transport()).thenReturn(Transport.REST);
+        when(restClient.send(anyList())).thenReturn(IngestReport.empty(Transport.REST));
+
+        SimulationRunner runner = runner(properties(Transport.REST, 2, 3), restClient);
+        runner.execute();
+        runner.execute();
+
+        ArgumentCaptor<List<DetectionRecord>> sent = ArgumentCaptor.forClass(List.class);
+        verify(restClient, Mockito.times(2)).send(sent.capture());
+
+        List<DetectionRecord> first = sent.getAllValues().get(0);
+        List<DetectionRecord> second = sent.getAllValues().get(1);
+
+        // Same sensors both cycles — a sensor that renamed itself every few seconds would never be
+        // reported ONLINE, because health is keyed on the id.
+        assertThat(second.stream().map(DetectionRecord::getSensorId).collect(Collectors.toSet()))
+                .isEqualTo(first.stream().map(DetectionRecord::getSensorId).collect(Collectors.toSet()));
+
+        // First cycle 1..3, second cycle 4..6 — disjoint, so nothing is dropped as a duplicate.
+        assertThat(first.stream().map(DetectionRecord::getSensorSeq).distinct().sorted().toList())
+                .containsExactly(1L, 2L, 3L);
+        assertThat(second.stream().map(DetectionRecord::getSensorSeq).distinct().sorted().toList())
+                .containsExactly(4L, 5L, 6L);
+    }
+
+    /**
+     * sensor-ingestion decides a sensor is ONLINE from how recently it last saw it
+     * ({@code health.online-within}, 30 s). Detections stamped further back than that arrive already
+     * stale, and the console reports every sensor OFFLINE however recently the simulator ran — which
+     * is exactly what it did, because the batch was offset by {@code perSensor} *seconds* while being
+     * spaced 100 ms apart, leaving the freshest detection ~90 s old at the default size.
+     */
+    @Test
+    void theNewestDetectionInACycleCarriesTheCurrentInstant() {
+        when(restClient.transport()).thenReturn(Transport.REST);
+        when(restClient.send(anyList())).thenReturn(IngestReport.empty(Transport.REST));
+
+        runner(properties(Transport.REST, 1, 100), restClient).execute();
+
+        ArgumentCaptor<List<DetectionRecord>> sent = ArgumentCaptor.forClass(List.class);
+        verify(restClient).send(sent.capture());
+
+        long newestEpochMs = sent.getValue().stream()
+                .mapToLong(d -> d.getSensorTime().getSeconds() * 1000L
+                        + d.getSensorTime().getNanos() / 1_000_000L)
+                .max()
+                .orElseThrow();
+        assertThat(newestEpochMs).isEqualTo(CLOCK.instant().toEpochMilli());
+    }
+
+    /** A one-shot run must be unchanged by the offset: sequences still start at 1. */
+    @Test
+    void aSingleRunStillStartsItsSequenceAtOne() {
+        when(restClient.transport()).thenReturn(Transport.REST);
+        when(restClient.send(anyList())).thenReturn(IngestReport.empty(Transport.REST));
+
+        runner(properties(Transport.REST, 1, 3), restClient).execute();
+
+        ArgumentCaptor<List<DetectionRecord>> sent = ArgumentCaptor.forClass(List.class);
+        verify(restClient).send(sent.capture());
+        assertThat(sent.getValue().stream().map(DetectionRecord::getSensorSeq).sorted().toList())
+                .containsExactly(1L, 2L, 3L);
     }
 
     @Test

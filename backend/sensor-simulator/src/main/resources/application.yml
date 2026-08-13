@@ -26,6 +26,16 @@ simulator:
   # first and is dropped in full at normalisation — accepted at the intake, then silently discarded,
   # producing no tracks and no error. Set this per run to replay repeatedly.
   run-label: ${SIMULATOR_RUN_LABEL:}
+  # Continuous emission (development only). Off by default: one run, then exit, exactly as before.
+  #
+  # A single run is a burst — 300 detections in about four seconds — and roughly forty-five seconds
+  # later track-correlation has dropped every track past its 30 s lost-timeout and sensor-ingestion
+  # reports every sensor OFFLINE past its 30 s online-within. The console then correctly shows zeros.
+  # Continuous mode keeps the sensor ids fixed and the sequence numbers climbing, which is what a real
+  # sensor does, so the airspace stays live and no run label is needed.
+  continuous: ${SIMULATOR_CONTINUOUS:false}
+  # Below track-correlation's 10 s coast-timeout, so tracks stay live rather than flickering.
+  interval: ${SIMULATOR_INTERVAL:PT5S}
 
 logging:
   level:

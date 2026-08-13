@@ -1,5 +1,6 @@
 package pk.nust.cuas.simulator.config;
 
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -25,6 +26,22 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  *                            first. Every detection was accepted to the raw topic and then dropped at
  *                            normalisation, producing no tracks and no error. The dedup window is
  *                            right; it was the simulator that was not distinguishable between runs.
+ * @param continuous          emit indefinitely instead of once. Off by default, so every existing
+ *                            invocation behaves exactly as before.
+ *                            <p>A single run is a burst: 300 detections in about four seconds, after
+ *                            which the process exits. track-correlation drops a track
+ *                            {@code lost-timeout} (30 s) after its last detection and
+ *                            sensor-ingestion reports a sensor OFFLINE outside {@code online-within}
+ *                            (30 s), so roughly forty-five seconds later the live view is correctly
+ *                            empty and an operator console shows zeros. That is the pipeline working,
+ *                            not failing — but it cannot demonstrate a running airspace.
+ *                            <p>In continuous mode the sensor ids stay fixed and the sequence numbers
+ *                            keep climbing across cycles, which is what a real sensor does. No run
+ *                            label is needed, because a rising sequence never collides with the
+ *                            intake's {@code (sensorId, sensorSeq)} dedup window.
+ * @param interval            pause between cycles in continuous mode. The default is deliberately
+ *                            below track-correlation's 10 s coast-timeout, so tracks stay live rather
+ *                            than flickering between CONFIRMED and COASTING.
  */
 @ConfigurationProperties(prefix = "simulator")
 public record SimulationProperties(
@@ -36,7 +53,9 @@ public record SimulationProperties(
         @DefaultValue("100") int detectionsPerSensor,
         @DefaultValue("50") int batchSize,
         @DefaultValue("false") boolean runOnStartup,
-        @DefaultValue("") String runLabel) {
+        @DefaultValue("") String runLabel,
+        @DefaultValue("false") boolean continuous,
+        @DefaultValue("PT5S") Duration interval) {
 
     public SimulationProperties {
         if (sensors < 1) {

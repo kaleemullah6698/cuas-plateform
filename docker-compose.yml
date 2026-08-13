@@ -368,6 +368,12 @@ services:
       # on (sensorId, sensorSeq). Without it the second and every later replay is dropped in full at
       # normalisation — accepted, then silently discarded, with no tracks and no error to show why.
       SIMULATOR_RUN_LABEL: ${SIMULATOR_RUN_LABEL:-}
+      # Continuous emission for a live demonstration (development only). With SIMULATOR_CONTINUOUS
+      # =true the container keeps emitting until stopped, with fixed sensor ids and rising sequence
+      # numbers, so sensors stay ONLINE and tracks stay live instead of ageing out ~45 s after a
+      # one-shot burst. No run label is needed in this mode.
+      SIMULATOR_CONTINUOUS: ${SIMULATOR_CONTINUOUS:-false}
+      SIMULATOR_INTERVAL: ${SIMULATOR_INTERVAL:-PT5S}
       SIMULATOR_RUN_ON_STARTUP: "true"
     depends_on:
       sensor-ingestion: {condition: service_started}

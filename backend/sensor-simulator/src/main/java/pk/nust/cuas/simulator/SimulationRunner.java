@@ -52,10 +52,60 @@ public class SimulationRunner implements ApplicationRunner {
         this.clock = clock;
     }
 
+    /**
+     * Where the next cycle's sequence numbers start.
+     *
+     * <p>Zero for a one-shot run, which reproduces the original behaviour exactly: sequences 1..N.
+     * In continuous mode it advances by {@code detectionsPerSensor} each cycle, so the ids stay fixed
+     * while the sequence keeps climbing — a real sensor, rather than the same burst replayed. That is
+     * also what keeps the intake's {@code (sensorId, sensorSeq)} dedup window from discarding every
+     * cycle after the first, with no run label needed.
+     */
+    private long sequenceOffset;
+
     @Override
     public void run(ApplicationArguments args) {
-        if (properties.runOnStartup()) {
+        if (!properties.runOnStartup()) {
+            return;
+        }
+        if (properties.continuous()) {
+            executeContinuously();
+        } else {
             execute();
+        }
+    }
+
+    /**
+     * Emits a cycle every {@code simulator.interval} until the process is stopped.
+     *
+     * <p>Development only, and the reason it exists is specific: a single run is a burst, and roughly
+     * forty-five seconds later track-correlation has dropped every track past its 30 s lost-timeout
+     * and sensor-ingestion reports every sensor OFFLINE past its 30 s online-within. An operator
+     * console then correctly shows zeros. Continuous emission is what makes a live airspace live.
+     *
+     * <p>Interruption is honoured rather than swallowed: `docker compose stop` should stop it.
+     */
+    public void executeContinuously() {
+        log.info("Continuous simulation: {} detection(s) per sensor from {} sensor(s) every {}",
+                properties.detectionsPerSensor(), properties.sensors(), properties.interval());
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                execute();
+            } catch (RuntimeException ex) {
+                // A cycle must not be able to end the run. The intake answers 503
+                // ("Could not publish to sensor.detection.raw.v1") whenever Kafka is briefly
+                // unavailable — a broker restart, a rebalance — and an emitter that died on the
+                // first one would leave an operator staring at a console that silently stopped
+                // updating. A real sensor adapter keeps reporting; so does this one.
+                log.warn("Simulation cycle failed ({}); continuing", ex.getMessage());
+            }
+            try {
+                Thread.sleep(properties.interval().toMillis());
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                log.info("Continuous simulation interrupted; stopping");
+                return;
+            }
         }
     }
 
@@ -91,15 +141,32 @@ public class SimulationRunner implements ApplicationRunner {
     }
 
     private List<DetectionRecord> generate() {
-        Instant base = clock.instant().minusSeconds(properties.detectionsPerSensor());
+        int perSensor = properties.detectionsPerSensor();
+
+        // The cycle ends at "now": detections are spaced 100 ms apart, so the window is
+        // perSensor * 100 ms wide and the newest detection carries the current instant.
+        //
+        // This previously subtracted perSensor *seconds* while spacing the detections 100 ms apart,
+        // which stamped the whole batch far in the past — with the default 100 detections the
+        // freshest one was about 90 seconds old. sensor-ingestion decides ONLINE from
+        // `health.online-within` (30 s), so every sensor was reported OFFLINE the moment it was
+        // ingested, no matter how recently the simulator had run. That is why the console showed
+        // sensors online 0/n even straight after a replay.
+        Instant base = clock.instant().minusMillis((long) perSensor * 100L);
+        long offset = sequenceOffset;
+
         List<DetectionRecord> detections = new ArrayList<>();
         for (int sensor = 0; sensor < properties.sensors(); sensor++) {
             SensorModality modality = MODALITY_ROTATION[sensor % MODALITY_ROTATION.length];
             String sensorId = "sim-" + label(modality) + '-' + sensor + runSuffix();
-            for (long seq = 1; seq <= properties.detectionsPerSensor(); seq++) {
-                detections.add(factory.create(sensorId, modality, seq, base.plusMillis(seq * 100)));
+            for (long seq = 1; seq <= perSensor; seq++) {
+                detections.add(factory.create(sensorId, modality, offset + seq,
+                        base.plusMillis(seq * 100)));
             }
         }
+
+        // Advanced after generating, so a one-shot run emits 1..N exactly as it always did.
+        sequenceOffset = offset + perSensor;
         return detections;
     }
 

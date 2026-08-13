@@ -60,29 +60,92 @@ docker compose exec kafka bash /scripts/create-topics.sh
 Sign in with the bootstrap administrator from `.env` (`admin` / your password). The account holds the
 ADMIN role and therefore every §7.4 permission, so all navigation is available.
 
-> **Sign in once.** The gateway rate-limits logins to 10/hour per account with a burst of 3 (§7.8),
-> refilling roughly one token every six minutes. Repeated sign-ins during rehearsal will produce a
-> **429**. That is the security control working correctly — do not try to "test" it beforehand,
-> because each test consumes a token you will want during the demonstration.
+> **Warm the login up before your supervisor sits down.** The *first* sign-in after the stack starts
+> reliably fails with a **500**: auth-service's first `ResolvePermissions` gRPC call pays
+> user-service's class-loading and exceeds its deadline. Measured here: **500 in 22.6 s cold, then
+> 200 in 1.15 s warm**. Sign in once yourself, confirm it fails, sign in again, confirm it works —
+> then leave the session alone.
+>
+> **Then sign in sparingly.** The gateway rate-limits logins to 10/hour per account with a burst of 3,
+> and 5/minute per IP (§7.8). Repeated attempts produce a **429**. That is the control working — do
+> not "test" it beforehand, because each test consumes a token you will want live.
 
 ---
 
-## 4. Replay an intrusion
+## 4. Bring the airspace to life
 
-With the console open on **Tracks**, run this in a terminal:
+### Use this for the demonstration — continuous emission from the host
+
+The simulator is a **client**, not a service, and sensor-ingestion publishes its intake on `8083`
+(REST) and `9083` (gRPC). Running it from the host is the recommended path on a memory-constrained
+machine: it avoids an in-container Maven build, which is the single heaviest operation in this
+repository and the one that has repeatedly exhausted the Docker engine.
+
+```bash
+# Once, if the jar is not current (host build, no Docker involved):
+JAVA_HOME=../.toolchain/jdk-21.0.11+10 \
+  ../.toolchain/apache-maven-3.9.9/bin/mvn -f backend/pom.xml -pl sensor-simulator package -DskipTests -Dbuf.skip=true
+
+# Then, for the demonstration — leave this running:
+../.toolchain/jdk-21.0.11+10/bin/java \
+  -Dsimulator.rest-base-url=http://localhost:8083 \
+  -Dsimulator.transport=REST -Dsimulator.sensors=3 \
+  -Dsimulator.detections-per-sensor=6 -Dsimulator.interval=PT8S \
+  -Dsimulator.run-on-startup=true -Dsimulator.continuous=true \
+  -jar backend/sensor-simulator/target/sensor-simulator-0.1.0-SNAPSHOT.jar
+```
+
+Sensors stay **ONLINE**, tracks stay live and alerts keep arriving, because the sensors keep
+reporting — exactly as real ones would. Stop it with `Ctrl-C`.
+
+**These numbers are deliberate.** 18 detections every 8 s (~135/minute) keeps every sensor inside
+`online-within` (30 s) and every track inside `coast-timeout` (10 s) while leaving the host headroom.
+A faster rate was measured at ~430/minute and made sign-in take 11.5 s under contention.
+
+If your machine has more memory, the containerised equivalent is
+`SIMULATOR_CONTINUOUS=true docker compose --profile sim --profile platform up -d sensor-simulator`,
+which requires the `sensor-simulator` image to be built first.
+
+### Free memory before demonstrating
+
+Elasticsearch and Kibana consume ~1.5 GB and are on **no** demo path. Stopping them measurably
+improved stability here:
+
+```bash
+docker compose stop elasticsearch kibana
+```
+
+**Why this mode exists, and it is worth understanding before you present.** A one-shot replay is a
+*burst*: 300 detections in about four seconds, then the process exits. Three timeouts then take
+effect —
+
+| Setting | Value |
+|---|---|
+| `track-correlation.coast-timeout` | 10 s |
+| `track-correlation.lost-timeout` | **30 s** |
+| `sensor-ingestion.health.online-within` | **30 s** |
+
+— so roughly forty-five seconds after a burst, every track has been dropped as lost, every alert has
+auto-resolved with its track, and every sensor is reported OFFLINE. The console then correctly shows
+`ACTIVE TRACKS 0`, `SENSORS ONLINE 0/n`, and "airspace clear". **That is the pipeline working, not
+failing** — a burst input simply cannot populate a live display.
+
+Continuous mode keeps the sensor ids fixed and the sequence numbers climbing, which is what a real
+sensor does. It needs no run label, because a rising sequence never collides with the intake's
+`(sensorId, sensorSeq)` dedup window.
+
+### One-shot replay — for showing a single intrusion arriving
 
 ```bash
 SIMULATOR_RUN_LABEL=$(date +%s) \
   docker compose --profile sim --profile platform run --rm --no-deps sensor-simulator
 ```
 
-It emits 300 detections from three simulated sensors across REST and gRPC, then exits. Tracks appear
-in the console within a few seconds.
-
-**`SIMULATOR_RUN_LABEL` matters.** The intake deduplicates on `(sensorId, sensorSeq)` so that
-at-least-once redelivery is safe (§4.1.4). Without a fresh label, a second replay is indistinguishable
-from a redelivery of the first and is discarded in full — every detection reported "accepted", and no
-track ever appears. Use `$(date +%s)` and each run is distinct.
+Useful to show tracks and an alert appearing *while your supervisor watches*, but expect them to age
+out within about a minute. **`SIMULATOR_RUN_LABEL` is required here**: the intake deduplicates on
+`(sensorId, sensorSeq)` so at-least-once redelivery is safe (§4.1.4), and without a fresh label a
+second replay is indistinguishable from a redelivery of the first and is discarded in full — every
+detection reported "accepted", and no track ever appearing.
 
 ---
 
@@ -169,7 +232,8 @@ Use `stop` between rehearsals — `down -v` destroys the bootstrap administrator
 | Sign-in returns **429** | Login rate limit (10/hour, burst 3). Wait ~6 min for a token. Do not probe the endpoint — the probe is itself a login. |
 | Sign-in returns **500** on the very first attempt after a start | Cold `ResolvePermissions` gRPC call exceeding its deadline while user-service class-loads. Retry once; it succeeds warm. |
 | Console shows "Sign-in failed", gateway healthy | nginx in `web` proxying a stale gateway address. `docker compose restart web`. |
-| Replay reports "accepted 300" but **no tracks appear** | Missing or reused `SIMULATOR_RUN_LABEL` — the replay was deduplicated as a redelivery. Re-run with `$(date +%s)`. |
+| Dashboard shows **0 tracks, 0 alerts, 0/n sensors** and "airspace clear" | Nothing is broken. The last replay was a burst and everything has aged out past the 30 s lost-timeout / online-within. Start continuous emission (§4). The REST history is intact — the dashboard shows the *live* view, which is the §3.5 design. |
+| Replay reports "accepted 300" but **no tracks appear** | Missing or reused `SIMULATOR_RUN_LABEL` on a **one-shot** replay — deduplicated as a redelivery. Re-run with `$(date +%s)`, or use continuous mode, which needs no label. |
 | **No tracks at all**, and the label was fresh | Fewer detections than `required-consecutive-sweeps`; correlation never promotes a tentative track. Use the default scenario size — do not thin it. |
 | Services stuck at `health: starting` | Normal for up to 120 s. Beyond that: `docker compose logs <service> --since 5m`. |
 | `pg_dump`/`psql` refuse with "too many clients" | Should not recur — pools are capped and the ceiling raised. Check `SELECT count(*) FROM pg_stat_activity`. |
@@ -183,9 +247,10 @@ Fifteen minutes before, in this order:
 
 1. `docker compose ps` → **16 healthy**
 2. `curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/` → **200**
-3. Replay once with a fresh label; confirm tracks appear in the console
-4. Confirm an alert appears in **Alerts**
-5. **Then stop touching it.** Every extra sign-in spends a rate-limit token.
+3. Start **continuous** emission (§4) and leave it running
+4. Confirm the dashboard shows non-zero **ACTIVE TRACKS** and **SENSORS ONLINE**
+5. Confirm an alert appears in **Alerts**
+6. **Then stop touching it.** Every extra sign-in spends a rate-limit token.
 
 For a fully automated end-to-end check — real browser, real login, real WebSocket, no mocks:
 
