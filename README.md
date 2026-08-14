@@ -13,10 +13,10 @@ Software integration layer between counter-UAS detection hardware and engagement
 ## Status: locally verified / production deployment hardening pending
 
 The platform is **built, assembled and driven end to end on a development host**. Milestones M0–M11
-and M12.A are complete. Frozen at commit `e611a9f`.
+and M12.A are complete.
 
-Verified at that commit, by running it: **17 modules, 944 backend tests, 0 failures**; frontend
-**69 tests**, `tsc` and lint clean; **16 containers healthy**; backup and restore of all ten
+Verified at that commit, by running it: **17 modules, 947 backend tests, 0 failures**; frontend
+**78 tests**, `tsc` and lint clean; **16 containers healthy**; backup and restore of all ten
 databases with the audit hash chain verified **intact** afterwards; and the **live operator journey**
 — a real browser, a real login, and a real WebSocket carrying a real track and alert, with no mocks.
 
@@ -27,7 +27,9 @@ databases with the audit hash chain verified **intact** afterwards; and the **li
 > under load. No production-readiness claim should be made until each is implemented *and* verified.
 
 **Start here:** [`docs/HANDOFF.md`](docs/HANDOFF.md) — the verified state, the deferred list, and the
-recommended next steps. [`docs/OPERATIONS.md`](docs/OPERATIONS.md) is the runbook.
+recommended next steps. [`docs/TECHNICAL_AUDIT_REPORT.md`](docs/TECHNICAL_AUDIT_REPORT.md) is the full
+systems-engineering audit: how every component works, how real sensors and AI models would be
+integrated, deployment targets, and hardware requirements. [`docs/OPERATIONS.md`](docs/OPERATIONS.md) is the runbook.
 
 `docs/ARCHITECTURE.md` is the single source of truth. Every directory here traces to a section of it.
 
@@ -88,11 +90,14 @@ Each AI service is a pure function of its input: no database credentials, no Kaf
 
 The platform (Track A) and the AI services (Track B) are built in parallel and meet at exactly one place: the `InferenceService` gRPC contract in `contracts/proto/inference.proto`.
 
-**Mock inference providers** let the entire platform run end-to-end with zero trained models. Mocks report `model_version: "0.0.0-mock"` and `device: DEVICE_MOCK`, so mocked results are never mistakable for real ones — the dashboard renders an explicit badge. Switching a service from mock to real is a configuration change:
+**Mock inference providers** let the entire platform run end-to-end with zero trained models. Mocks
+report `model_version: "0.0.0-mock"` and `device: DEVICE_MOCK`, so mocked results are never mistakable
+for real ones — the **AI Services** screen states plainly when inference is mock. Switching a service
+from mock to real is a configuration change (`mode: grpc` plus an `endpoint`), with no orchestrator
+code change.
 
-```bash
-AI_PROVIDER_MODE=mock docker compose --profile platform up -d
-```
+> The working provider today is the **Java** `MockInferenceProvider` inside `ai-orchestrator`. The
+> Python services under `ai-services/` are empty scaffolds — see the audit, Part 6.
 
 ---
 
@@ -104,15 +109,23 @@ Prerequisites: JDK 21, Maven 3.9+, Node 22+, Python 3.12+, Docker with Compose.
 cp .env.example .env        # then fill in credentials
 ```
 
-Neither the Maven build nor the frontend install has been executed against this scaffold yet — see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the intended commands and their current verification status.
+Then follow [docs/DEMO-RUNBOOK.md](docs/DEMO-RUNBOOK.md) to start the platform and sign in. The build
+is verified: `mvn clean verify` runs 17 modules and 947 tests green, and the frontend passes 78 tests
+with `tsc`, lint and `vite build` clean. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the
+toolchain note — `java`, `mvn` and `buf` are not on `PATH`.
 
 ---
 
-## Highest-priority next step
+## Highest-priority next steps
 
-`contracts/proto/detection.proto` and `contracts/proto/inference.proto` are empty. Both are specified in full in ARCHITECTURE.md §5.3 and §6.2 and can be lifted verbatim.
+The contracts are complete and every Track A service is built. The five things standing between this
+and a real deployment, in order:
 
-Until they exist, Track B has nothing to build against and the mock-provider decoupling does not function. These are the highest-value files in the repository.
+1. **A real sensor adapter** — the only missing link in the ingestion chain (see the audit, Part 3)
+2. **A real trained model** behind the `InferenceService` contract (Part 6)
+3. **mTLS between services** — every inter-service gRPC hop is currently plaintext (SR-2)
+4. **A secrets backend** — credentials come from `.env`
+5. **Load and stress testing** — the §1.x ceilings are unmeasured
 
 ---
 
